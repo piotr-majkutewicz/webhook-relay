@@ -17,6 +17,7 @@ import { handleIngest } from "./core/ingest";
 import { hmacSha256Hex, sha256Hex, timingSafeEqual } from "./core/signature";
 import type { DeliveryStatus, Repository } from "./core/types";
 import { D1Repository } from "./d1repo";
+import { parseLang } from "./i18n";
 import { panelHtml } from "./panel";
 
 const STATUSES: DeliveryStatus[] = ["pending", "delivered", "failed", "dead"];
@@ -244,7 +245,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext, makeRepo: Re
   if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/admin")) {
     const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
     const limits = parseDemoLimits(env);
-    return new Response(panelHtml(nonce, demo ? { ttlHours: limits.ttlMs / 3_600_000, maxEvents: limits.maxEvents } : null), {
+    return new Response(panelHtml(nonce, demo ? { ttlHours: limits.ttlMs / 3_600_000, maxEvents: limits.maxEvents } : null, parseLang(url.searchParams.get("lang")) ?? undefined), {
       headers: {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
