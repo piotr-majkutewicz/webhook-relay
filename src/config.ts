@@ -29,13 +29,21 @@ export const destinations: Record<string, DestinationConfig> = {
 
 export interface Env {
   DB: D1Database;
-  ADMIN_TOKEN: string;
+  ADMIN_TOKEN?: string;
   MAX_BODY_BYTES?: string;
   MAX_ATTEMPTS?: string;
   RETRY_BASE_SECONDS?: string;
   RETRY_MAX_SECONDS?: string;
   DELIVERY_TIMEOUT_MS?: string;
   BATCH_SIZE?: string;
+  /** "true" turns on the public, read-only demo behaviour (see README). Off by default. */
+  DEMO_MODE?: string;
+  DEMO_SOURCE_SECRET?: string;
+  DEMO_TTL_HOURS?: string;
+  DEMO_MAX_EVENTS?: string;
+  DEMO_RATE_WINDOW_SECONDS?: string;
+  DEMO_RATE_PER_IP?: string;
+  DEMO_RATE_GLOBAL?: string;
   [key: string]: unknown;
 }
 

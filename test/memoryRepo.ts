@@ -1,3 +1,4 @@
+import type { DemoStore } from "../src/core/demo";
 import { aggregateStatus } from "../src/core/state";
 import type {
   AttemptRecord,
@@ -25,9 +26,10 @@ interface Del {
 }
 
 /** In-memory fake of the repository, with the same semantics as the D1 one. */
-export class MemoryRepository implements Repository {
+export class MemoryRepository implements Repository, DemoStore {
   events: NewEvent[] = [];
   deliveries: Del[] = [];
+  counters = new Map<string, { windowStart: number; hits: number }>();
   private seq = 0;
 
   async insertEvent(event: NewEvent, destinations: string[]) {
@@ -131,5 +133,35 @@ export class MemoryRepository implements Repository {
       }
     }
     return n;
+  }
+
+  async hitCounter(key: string, windowStart: number) {
+    const c = this.counters.get(key) ?? { windowStart, hits: 0 };
+    c.hits += 1;
+    this.counters.set(key, c);
+    return c.hits;
+  }
+
+  async purgeCounters(olderThan: number) {
+    for (const [k, c] of this.counters) if (c.windowStart < olderThan) this.counters.delete(k);
+  }
+
+  async countEvents() {
+    return this.events.length;
+  }
+
+  private remove(ids: Set<string>) {
+    this.events = this.events.filter((e) => !ids.has(e.id));
+    this.deliveries = this.deliveries.filter((d) => !ids.has(d.eventId));
+    return ids.size;
+  }
+
+  async purgeEventsBefore(cutoffMs: number) {
+    return this.remove(new Set(this.events.filter((e) => e.receivedAt < cutoffMs).map((e) => e.id)));
+  }
+
+  async trimEventsTo(keep: number) {
+    const sorted = [...this.events].sort((a, b) => b.receivedAt - a.receivedAt || a.id.localeCompare(b.id));
+    return this.remove(new Set(sorted.slice(keep).map((e) => e.id)));
   }
 }

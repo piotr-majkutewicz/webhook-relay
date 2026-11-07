@@ -9,3 +9,7 @@ DEST_CRM_URL=http://127.0.0.1:9100/hook
 RETRY_BASE_SECONDS=1
 RETRY_MAX_SECONDS=4
 MAX_ATTEMPTS=6
+
+# Demo mode (npm run dev:demo reads .dev.vars.demo, which is git-ignored; copy these there).
+# DEMO_MODE itself is set in wrangler.jsonc (env.demo), not here.
+# DEMO_SOURCE_SECRET=any-long-random-local-string
