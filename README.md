@@ -47,6 +47,16 @@ sequenceDiagram
 
 Delivery states: `pending` (waiting for a first or next attempt), `delivered`, `failed` (permanent error, retrying would not help), `dead` (retries exhausted). The status of an event is the worst status of its deliveries (dead, failed, pending, delivered).
 
+## Languages
+
+The panel (normal and demo mode) is **Polish by default**, whatever the browser's language is, and has a PL / EN switch in the header.
+- `?lang=pl` or `?lang=en` in the URL takes precedence and is saved.
+- Otherwise the saved choice is used (`localStorage` key `relay.lang`; the page works without it if storage is blocked), then Polish.
+- `<html lang>` follows the chosen language. The switch is a pair of buttons with `aria-pressed`, usable from the keyboard, 44 px touch targets. Switching re-renders from the data already on screen, so the selected event, the status filter and auto-refresh are not reset and no request is made.
+- All texts live in two dictionaries, [`src/i18n/pl.ts`](src/i18n/pl.ts) and [`src/i18n/en.ts`](src/i18n/en.ts). A key missing in one of them is a compile error, and a test checks that no text is empty and that placeholders match. The dictionaries are passed to the page as inert JSON (a non-executed script block) and applied with `textContent`; the CSP is unchanged.
+- The JSON API is not translated: field names, statuses (`pending`, `delivered`, `failed`, `dead`), outcomes and error messages stay the same in every language, and the panel maps the stable identifiers to labels. Event data (payload, attempt errors such as `HTTP 503`) is shown as received.
+- **Time zone decision:** times are shown in the browser's local time zone, formatted for the chosen language (Polish `pl-PL`, English `en-GB`; both 24 hour), and the zone name is printed under the table (for example `Europe/Warsaw`) so there is no ambiguity. I preferred this over fixed UTC because visitors read "when did this happen" against their own clock; the API still returns epoch milliseconds.
+
 ## Decisions and trade-offs
 
 **D1 + cron instead of a queue.** I checked the current Cloudflare Queues pricing page: Queues is listed for the Workers Free plan too (10,000 operations per day included, messages kept for 24 hours, non-configurable). So cost was not the deciding factor. I still chose a table plus a cron trigger because:
@@ -145,7 +155,7 @@ In a second terminal:
 npm run demo
 ```
 
-The demo starts a fake CRM on port 9100 that answers 500 three times per event and then 200, sends signed events (one valid, one duplicate, one with a wrong signature, one with a stale timestamp, one from a second source) and prints the result. The real output of a run is in [`docs/demo-output.txt`](docs/demo-output.txt). Open http://127.0.0.1:8787/ and enter `dev-admin-token` to see the panel.
+The demo starts a fake CRM on port 9100 that answers 500 three times per event and then 200, sends signed events (one valid, one duplicate, one with a wrong signature, one with a stale timestamp, one from a second source) and prints the result. The real output of a run is in [`docs/demo-output.txt`](docs/demo-output.txt). Open http://127.0.0.1:8787/ (add `?lang=en` for English) and enter `dev-admin-token` to see the panel.
 
 Local cron: `wrangler dev` does not fire the schedule by itself. The demo triggers the scheduled handler through `GET /cdn-cgi/handler/scheduled`, which needs the `--test-scheduled` flag. `npm run dev` already passes that flag.
 
@@ -241,6 +251,7 @@ src/core/      pure logic: signature, backoff, classify, state, idempotency, ing
 src/d1repo.ts  D1 implementation of the repository interface
 src/index.ts   Worker: routing, size limit, admin API, demo sample endpoint, scheduled handler
 src/panel.ts   admin panel (one HTML page)
+src/i18n/      Polish and English UI dictionaries
 src/config.ts  sources and destinations
 migrations/    D1 schema (0002 adds the demo rate counters; it is harmless in normal mode)
 test/          unit tests and the in-memory repository
