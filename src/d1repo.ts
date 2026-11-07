@@ -1,3 +1,4 @@
+import type { DemoStore } from "./core/demo";
 import { aggregateStatus } from "./core/state";
 import type {
   AttemptRecord,
@@ -23,7 +24,7 @@ interface DeliveryRow {
   delivered_at: number | null;
 }
 
-export class D1Repository implements Repository {
+export class D1Repository implements Repository, DemoStore {
   constructor(private readonly db: D1Database) {}
 
   async insertEvent(event: NewEvent, destinations: string[]): Promise<{ id: string; duplicate: boolean }> {
@@ -220,5 +221,48 @@ export class D1Repository implements Repository {
       .bind(id, now)
       .run();
     return res.meta.changes ?? 0;
+  }
+
+  // ---- DEMO_MODE support: rate counters and retention ----
+
+  async hitCounter(key: string, windowStart: number): Promise<number> {
+    const row = await this.db
+      .prepare(
+        `INSERT INTO demo_rate_counters (key, window_start, hits) VALUES (?1, ?2, 1)
+         ON CONFLICT (key) DO UPDATE SET hits = hits + 1 RETURNING hits`,
+      )
+      .bind(key, windowStart)
+      .first<{ hits: number }>();
+    return row?.hits ?? Number.MAX_SAFE_INTEGER; // fail closed
+  }
+
+  async purgeCounters(olderThanWindowStart: number): Promise<void> {
+    await this.db.prepare("DELETE FROM demo_rate_counters WHERE window_start < ?1").bind(olderThanWindowStart).run();
+  }
+
+  async countEvents(): Promise<number> {
+    const row = await this.db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
+    return row?.n ?? 0;
+  }
+
+  /** Children are deleted explicitly (in one transaction) so this does not depend on foreign key enforcement. */
+  private deleteEventsWhere(idsSql: string, binds: unknown[]): Promise<number> {
+    return this.db
+      .batch([
+        this.db
+          .prepare(`DELETE FROM attempts WHERE delivery_id IN (SELECT id FROM deliveries WHERE event_id IN (${idsSql}))`)
+          .bind(...binds),
+        this.db.prepare(`DELETE FROM deliveries WHERE event_id IN (${idsSql})`).bind(...binds),
+        this.db.prepare(`DELETE FROM events WHERE id IN (${idsSql})`).bind(...binds),
+      ])
+      .then((r) => r[2]?.meta.changes ?? 0);
+  }
+
+  purgeEventsBefore(cutoffMs: number): Promise<number> {
+    return this.deleteEventsWhere("SELECT id FROM events WHERE received_at < ?1", [cutoffMs]);
+  }
+
+  trimEventsTo(keep: number): Promise<number> {
+    return this.deleteEventsWhere("SELECT id FROM events ORDER BY received_at DESC, id LIMIT -1 OFFSET ?1", [keep]);
   }
 }
