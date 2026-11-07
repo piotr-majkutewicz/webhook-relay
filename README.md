@@ -10,7 +10,7 @@ It is a portfolio project that shows how I think about reliability in integratio
 
 The demo is intended to run at **https://relay.piotrmajkutewicz.pl**. It is only live after the deployment steps in [Deploying the demo](#deploying-the-demo) have been done; until then the address does not exist. Nothing in this repository has been deployed yet.
 
-In the demo you can press "Send a sample event", watch it arrive, fail, be retried and (depending on the scenario) be delivered or end up dead. The panel is read-only. The demo is deliberately **not indexed by search engines** (see [Demo mode and threat model](#demo-mode-and-threat-model)).
+The page opens with a short "what is this?" explanation and a diagram (payment provider, relay, your system). Below it are five scenario cards: everything works, the receiver is briefly down (two failures, then success), the receiver is down for good (dead after 5 tries), the same notification arrives twice (the duplicate is ignored), and a notification with a wrong signature (rejected). Each event has a plain-language summary ("Delivered after try 3") and a timeline of what happened, with a countdown to the next try. The panel is read-only. The demo is deliberately **not indexed by search engines** (see [Demo mode and threat model](#demo-mode-and-threat-model)).
 
 ## The problem
 
@@ -56,6 +56,17 @@ The panel (normal and demo mode) is **Polish by default**, whatever the browser'
 - All texts live in two dictionaries, [`src/i18n/pl.ts`](src/i18n/pl.ts) and [`src/i18n/en.ts`](src/i18n/en.ts). A key missing in one of them is a compile error, and a test checks that no text is empty and that placeholders match. The dictionaries are passed to the page as inert JSON (a non-executed script block) and applied with `textContent`; the CSP is unchanged.
 - The JSON API is not translated: field names, statuses (`pending`, `delivered`, `failed`, `dead`), outcomes and error messages stay the same in every language, and the panel maps the stable identifiers to labels. Event data (payload, attempt errors such as `HTTP 503`) is shown as received.
 - **Time zone decision:** times are shown in the browser's local time zone, formatted for the chosen language (Polish `pl-PL`, English `en-GB`; both 24 hour), and the zone name is printed under the table (for example `Europe/Warsaw`) so there is no ambiguity. I preferred this over fixed UTC because visitors read "when did this happen" against their own clock; the API still returns epoch milliseconds.
+
+## Mobile layout and scrolling
+
+The first public version could not be scrolled back up on a phone after scrolling down. I reproduced it with an iPhone 13 emulation: after one sample event the layout was 510 px wide on a 390 px screen. Cause: the single column of the page used `grid-template-columns: 1fr`, whose minimum is the content size, so a wide table pushed the whole page wider than the screen; the details area also had its own scroll box (`max-height` with `overflow:auto`) and the 3 second auto-refresh replaced the whole list and the details under the finger.
+
+What changed:
+- The column is `minmax(0, 1fr)` and long values wrap (`overflow-wrap:anywhere`). Below 700 px the event table becomes cards, the diagram is vertical, and the details have no nested scroll area (a `max-height` payload box exists only on wide screens). Nothing scrolls horizontally.
+- The event list is updated node by node, the details are rebuilt only when their data changed, and the scroll position is restored if a rebuild moved it.
+- Refreshing pauses while a finger is on the screen, while scrolling, and for 1.5 seconds afterwards, and while the tab is hidden. Results that arrive in the meantime are applied once the page is idle; user-initiated actions are applied at once. The demo list shows the latest 10 events so the page stays short.
+
+Verification is [`scripts/e2e-demo.mjs`](scripts/e2e-demo.mjs) (Playwright, not part of `npm test`; run it against `wrangler dev`, see the header of the file). It uses the iPhone 13 profile at 390 and 360 px with real touch events sent through the Chrome DevTools protocol (I first checked on a control page that these gestures scroll), and checks: no horizontal overflow in every state including 300-character values, scrolling down by touch, `scrollY` unchanged during several refresh cycles, scrolling back to 0, no refresh while the screen is touched, and no console errors. The same script checks the Polish view for typical English words and the English view for Polish letters. I could not test on a real iOS device; the emulation is Chromium with an iPhone profile, so iOS Safari specific behaviour (rubber banding, the dynamic address bar) is not covered.
 
 ## Decisions and trade-offs
 
@@ -103,7 +114,9 @@ The cost: the cron trigger runs at most once a minute, so a retry is picked up u
 
 **What a visitor can do**
 - Open the panel without a token and read events, deliveries and attempts (`GET /admin/events`, `GET /admin/events/:id`).
+- Read `GET /admin/intake`: the short log of requests that did not create an event (a duplicate that was ignored, a request rejected for a bad signature).
 - Create sample events with `POST /demo/sample`, choosing only one of three scenarios: `flaky` (the destination fails twice, then succeeds), `ok`, or `down` (always fails, ends up dead after 5 attempts).
+- Trigger two more server-side actions that take no input at all: `POST /demo/duplicate` (the server sends one signed event twice; the second copy is ignored and delivery happens once) and `POST /demo/bad-signature` (the server sends an event signed with a wrong key; it is rejected and nothing is stored). Both are logged in `demo_intake_log` (migration 0003), are subject to the same rate limits as sample events, and are purged by the same retention job.
 
 **What a visitor cannot do**
 - Replay or change anything. In demo mode the admin API accepts `GET` only; every other method and the replay path return 403, even with a valid admin token. There is no endpoint that changes configuration (sources and destinations live in code).
@@ -118,6 +131,8 @@ The cost: the cron trigger runs at most once a minute, so a retry is picked up u
 - The client is identified by `CF-Connecting-IP`, stored only as a salted HMAC hash. A client over its own limit does not use up the global budget.
 - Over the limit: 429 with `Retry-After`. The sample endpoint also rejects cross-origin requests (`Origin` header that is not the demo's own).
 
+**Fast retries in the demo.** With only the cron trigger a retry would show up after about a minute, which is too slow to understand the demo. In demo mode the Worker therefore also processes due deliveries when the panel reads (`GET /admin/events...`), and the demo uses short backoff (`RETRY_BASE_SECONDS` 5, `RETRY_MAX_SECONDS` 10, so the delays are 2.5 to 5 s and then 5 to 10 s). A "briefly down" event finished in about 20 seconds in my local run, and a "down for good" event was dead after about 30 seconds. Trade-offs: a read now has a side effect (bounded: one run per 2 seconds per Worker instance, the usual batch size, only the simulated destination), the 2 second throttle is per instance and is an optimisation rather than a guarantee, correctness still comes from the lease in `claimDue` and from the cron trigger, and each panel poll can cost one extra D1 query. Normal mode is unchanged: cron and the configured backoff only.
+
 **Retention and caps** (cron, every minute, plus a check before each insert):
 - Events older than 24 hours (`DEMO_TTL_HOURS`) are deleted with their deliveries and attempts.
 - At most 500 events are kept (`DEMO_MAX_EVENTS`). Above that the oldest are evicted. Each event has one delivery and at most 5 attempt rows (`MAX_ATTEMPTS` is 5 in the demo).
@@ -131,7 +146,7 @@ The cost: the cron trigger runs at most once a minute, so a retry is picked up u
 **Not indexed, on purpose.** Every response carries `X-Robots-Tag: noindex, nofollow`, and the panel has `<meta name="robots" content="noindex, nofollow">`. `/robots.txt` allows everything (`User-agent: *` / `Allow: /`) and there is no sitemap. A `Disallow` would be wrong here: a crawler that is not allowed to fetch a page never sees its `noindex`, and the URL can still end up listed from links alone. The header and meta tag apply in normal mode too.
 
 **What this does not cover**
-- Reads are not rate limited in the Worker: `GET /admin/events` can be called as often as someone likes, and each call is a D1 query. The panel polls every 5 seconds only while auto-refresh is on and the tab is visible, but a script is not so polite. Put a Cloudflare rate limiting rule on the hostname (see below).
+- Reads are not rate limited in the Worker: `GET /admin/events` can be called as often as someone likes, and each call is a D1 query. The panel polls every 4 seconds only while auto-refresh is on, the tab is visible and the user is not touching or scrolling, but a script is not so polite. Put a Cloudflare rate limiting rule on the hostname (see below).
 - Volumetric attacks (DDoS) are Cloudflare's job, not the Worker's.
 - The global limit is also a way to annoy other visitors: someone with enough addresses can use up the hourly budget. That is the price of a hard cost ceiling.
 - Fixed windows allow up to twice the limit around a window boundary. Counters and the cap are not one transaction, so concurrent requests can overshoot by a few events until the next cron run.
@@ -251,11 +266,11 @@ src/core/      pure logic: signature, backoff, classify, state, idempotency, ing
 src/d1repo.ts  D1 implementation of the repository interface
 src/index.ts   Worker: routing, size limit, admin API, demo sample endpoint, scheduled handler
 src/panel.ts   admin panel (one HTML page)
+scripts/       demo.mjs (local demo), e2e-demo.mjs (browser checks)
 src/i18n/      Polish and English UI dictionaries
 src/config.ts  sources and destinations
-migrations/    D1 schema (0002 adds the demo rate counters; it is harmless in normal mode)
+migrations/    D1 schema (0002 demo rate counters, 0003 demo intake log; harmless in normal mode)
 test/          unit tests and the in-memory repository
-scripts/       demo
 ```
 
 ## License
