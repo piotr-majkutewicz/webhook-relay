@@ -8,9 +8,18 @@ It is a portfolio project that shows how I think about reliability in integratio
 
 ## Live demo
 
-The demo is intended to run at **https://relay.piotrmajkutewicz.pl**. It is only live after the deployment steps in [Deploying the demo](#deploying-the-demo) have been done; until then the address does not exist. Nothing in this repository has been deployed yet.
+The demo is intended to run at **https://relay.piotrmajkutewicz.pl**. It is only live after the deployment steps in [Deploying the demo](#deploying-the-demo) have been done; until then the address does not exist. Nothing in this repository has been deployed by this change.
 
-The page opens with a short "what is this?" explanation and a diagram (payment provider, relay, your system). Below it are five scenario cards: everything works, the receiver is briefly down (two failures, then success), the receiver is down for good (dead after 5 tries), the same notification arrives twice (the duplicate is ignored), and a notification with a wrong signature (rejected). Each event has a plain-language summary ("Delivered after try 3") and a timeline of what happened, with a countdown to the next try. The panel is read-only. The demo is deliberately **not indexed by search engines** (see [Demo mode and threat model](#demo-mode-and-threat-model)).
+It is written for a business owner, not for a developer. The page is a story called "Order automation" (Polish by default, English with the switch in the header):
+
+1. **Hero.** After every order in a shop someone has to issue the invoice, send the customer a confirmation, tell the warehouse and add a row to a spreadsheet. Here automations do it. One button places a sample order (a made-up basket of 129 PLN).
+2. **Four automations.** Invoice issued, confirmation e-mail sent, warehouse notified, row added to the orders spreadsheet. Each step is a real, separate delivery made by the relay engine to its own simulated receiver inside the Worker (no network calls). Each has its own simulated delay (0.5 to 2.5 s). By default one random step briefly fails once and is retried, shown as "retrying in N s" with a warning icon; a checkbox turns that off. The states (queued, in progress, retrying, done) are derived from the real delivery returned by the API (polled about every 0.7 s), never from timers. A progress bar counts finished deliveries (4 of 4).
+3. **Time comparison.** "By hand: about X min of your work" (X is the calculator's minutes per order) next to "Automatically: N s", where N is measured: from the order being stored to the last delivery's `delivered_at`, both server timestamps. In my local runs with the hiccup on it showed 7 to 9 s, dominated by the retry delay; I did not measure other setups.
+4. **Savings calculator.** Orders per month, minutes of manual work per order, cost of an hour (validated: 1 to 100,000 whole orders, 0.5 to 240 minutes, 1 to 2000 PLN). Defaults (200 orders, 8 minutes, 80 PLN) are labelled as example assumptions. The result is `orders x minutes / 60` hours and hours x rate PLN per month, with an animated number. It is an estimate from the visitor's own assumptions; the page says so and makes no claim about real customers or results.
+5. **Call to action** linking to https://piotrmajkutewicz.pl (`rel="noopener"`).
+6. **"For developers: what happens under the hood"**, a collapsed section with the previous panel: event list, per-event timeline, rejected and duplicate requests, an architecture note and the developer scenarios (duplicate, wrong signature, a receiver that is down).
+
+Loading and animation: every click gives immediate feedback (the button turns into "Processing..." with a spinner and cannot be double-clicked), steps appear in a cascade, the tick is drawn, numbers count up. Space for every state is reserved so the layout does not jump, `role="status"` regions announce state changes in the chosen language, and with `prefers-reduced-motion` all animation and transitions are off. All CSS, no libraries, no external resources. The demo is deliberately **not indexed by search engines** (see [Demo mode and threat model](#demo-mode-and-threat-model)).
 
 ## The problem
 
@@ -64,9 +73,9 @@ The first public version could not be scrolled back up on a phone after scrollin
 What changed:
 - The column is `minmax(0, 1fr)` and long values wrap (`overflow-wrap:anywhere`). Below 700 px the event table becomes cards, the diagram is vertical, and the details have no nested scroll area (a `max-height` payload box exists only on wide screens). Nothing scrolls horizontally.
 - The event list is updated node by node, the details are rebuilt only when their data changed, and the scroll position is restored if a rebuild moved it.
-- Refreshing pauses while a finger is on the screen, while scrolling, and for 1.5 seconds afterwards, and while the tab is hidden. Results that arrive in the meantime are applied once the page is idle; user-initiated actions are applied at once. The demo list shows the latest 10 events so the page stays short.
+- Refreshing pauses while a finger is on the screen, while scrolling, and for 1.5 seconds afterwards, and while the tab is hidden. Results that arrive in the meantime are applied once the page is idle; user-initiated actions are applied at once. The developer view's list shows the latest 10 events so the page stays short, and the event view never shrinks while it refreshes (a minimum height), so a refresh cannot move the scroll position at the bottom of the page.
 
-Verification is [`scripts/e2e-demo.mjs`](scripts/e2e-demo.mjs) (Playwright, not part of `npm test`; run it against `wrangler dev`, see the header of the file). It uses the iPhone 13 profile at 390 and 360 px with real touch events sent through the Chrome DevTools protocol (I first checked on a control page that these gestures scroll), and checks: no horizontal overflow in every state including 300-character values, scrolling down by touch, `scrollY` unchanged during several refresh cycles, scrolling back to 0, no refresh while the screen is touched, and no console errors. The same script checks the Polish view for typical English words and the English view for Polish letters. I could not test on a real iOS device; the emulation is Chromium with an iPhone profile, so iOS Safari specific behaviour (rubber banding, the dynamic address bar) is not covered.
+The story and the mobile fix are verified by [`scripts/e2e-demo.mjs`](scripts/e2e-demo.mjs) (Playwright, not part of `npm test`; run it against `wrangler dev`, see the header of the file). It uses the iPhone 13 profile at 390 and 360 px with real touch events sent through the Chrome DevTools protocol (I first checked on a control page that these gestures scroll), and checks: the loading state appears within 100 ms of the click, four steps reach done (with a retry shown as "ponawiam"), the layout height and scrollY stay constant while an order runs, the calculator result and validation, animations off under `prefers-reduced-motion`, no horizontal overflow in every state including 300-character values, scrolling down by touch, `scrollY` unchanged during several refresh cycles, scrolling back to 0, no refresh while the screen is touched, and no console errors. The same script checks the Polish view for typical English words and the English view for Polish letters. I could not test on a real iOS device; the emulation is Chromium with an iPhone profile, so iOS Safari specific behaviour (rubber banding, the dynamic address bar) is not covered.
 
 ## Decisions and trade-offs
 
@@ -116,6 +125,7 @@ The cost: the cron trigger runs at most once a minute, so a retry is picked up u
 - Open the panel without a token and read events, deliveries and attempts (`GET /admin/events`, `GET /admin/events/:id`).
 - Read `GET /admin/intake`: the short log of requests that did not create an event (a duplicate that was ignored, a request rejected for a bad signature).
 - Create sample events with `POST /demo/sample`, choosing only one of three scenarios: `flaky` (the destination fails twice, then succeeds), `ok`, or `down` (always fails, ends up dead after 5 attempts).
+- Place a sample order with `POST /demo/order`: one event, four deliveries (`invoice`, `email`, `warehouse`, `sheet`) to simulated receivers. The body is empty or exactly `{"hiccup": true|false}`; the server generates the whole payload (fixed shape, one fixed basket, a random order number) and picks which step hiccups.
 - Trigger two more server-side actions that take no input at all: `POST /demo/duplicate` (the server sends one signed event twice; the second copy is ignored and delivery happens once) and `POST /demo/bad-signature` (the server sends an event signed with a wrong key; it is rejected and nothing is stored). Both are logged in `demo_intake_log` (migration 0003), are subject to the same rate limits as sample events, and are purged by the same retention job.
 
 **What a visitor cannot do**
@@ -127,7 +137,7 @@ The cost: the cron trigger runs at most once a minute, so a retry is picked up u
 **Signing.** The sample endpoint signs each event on the server with `DEMO_SOURCE_SECRET` (a Worker secret, never sent to the client) and sends it through the same ingest code as a real webhook (signature check, timestamp window, idempotency key, atomic insert). If the secret is not set, the endpoint answers 503 instead of working unsigned.
 
 **Rate limits** (fixed windows kept in D1, table `demo_rate_counters`; they work the same locally and in production):
-- 10 sample events per client per hour (`DEMO_RATE_PER_IP`), 100 per hour for the whole demo (`DEMO_RATE_GLOBAL`), window `DEMO_RATE_WINDOW_SECONDS` (3600).
+- Budgets are counted in deliveries: a sample event, a duplicate or a wrong-signature request costs 1, an order costs 4 (it creates four deliveries). Per client 20 per hour (`DEMO_RATE_PER_IP`, so 5 orders or 20 sample events), 200 per hour for the whole demo (`DEMO_RATE_GLOBAL`, 50 orders), window `DEMO_RATE_WINDOW_SECONDS` (3600). Before the story the numbers were 10 and 100 for single-delivery events. The rate of deliveries written per hour is therefore doubled on purpose, because an order is the main thing a visitor does and five orders per visitor is the least that tells the story; the cap and the TTL below keep the stored volume bounded. If you prefer the old ceiling, set 8 and 100 in `wrangler.jsonc` (2 orders per visitor).
 - The client is identified by `CF-Connecting-IP`, stored only as a salted HMAC hash. A client over its own limit does not use up the global budget.
 - Over the limit: 429 with `Retry-After`. The sample endpoint also rejects cross-origin requests (`Origin` header that is not the demo's own).
 
@@ -135,11 +145,13 @@ The cost: the cron trigger runs at most once a minute, so a retry is picked up u
 
 **Retention and caps** (cron, every minute, plus a check before each insert):
 - Events older than 24 hours (`DEMO_TTL_HOURS`) are deleted with their deliveries and attempts.
-- At most 500 events are kept (`DEMO_MAX_EVENTS`). Above that the oldest are evicted. Each event has one delivery and at most 5 attempt rows (`MAX_ATTEMPTS` is 5 in the demo).
+- At most 300 events are kept (`DEMO_MAX_EVENTS`, was 500). Above that the oldest are evicted. An order has 4 deliveries and about 5 attempt rows (one hiccup adds one), a developer scenario has one delivery and at most 5 attempt rows (`MAX_ATTEMPTS` is 5 in the demo), so the worst case is in the same range as before: a few thousand rows.
 - Rate counters older than two windows are deleted.
 - These numbers are my choices for a small demo, not the result of load testing.
 
 **Rendering.** All event data (payload, errors, ids) is written into the page with `textContent`. The demo panel has no replay code at all. The page loads no external scripts, fonts or images, makes no tracking calls, and is served with a nonce-based CSP (`default-src 'none'`, `connect-src 'self'`). The only external element is one plain link to https://piotrmajkutewicz.pl with `rel="noopener"`.
+
+**Simulated receivers.** The four order steps and the developer scenarios are functions inside the Worker (`simulateOrderStep`, `simulateDestination`): the demo's delivery code gets a label such as `https://simulated.invalid/invoice`, uses only its path to pick the function, and never calls `fetch`. The simulated delays are `setTimeout` waits inside a delivery attempt (they are not CPU time). `DEMO_STEP_DELAY_SCALE` (default 1) multiplies them; tests set it to 0.
 
 **Public data.** Anyone can read everything in the demo database. That is acceptable only because the demo database holds nothing but generated samples. Use a separate D1 database for it (the `env.demo` block does) and never point the demo at a database that holds real events.
 
@@ -147,6 +159,7 @@ The cost: the cron trigger runs at most once a minute, so a retry is picked up u
 
 **What this does not cover**
 - Reads are not rate limited in the Worker: `GET /admin/events` can be called as often as someone likes, and each call is a D1 query. The panel polls every 4 seconds only while auto-refresh is on, the tab is visible and the user is not touching or scrolling, but a script is not so polite. Put a Cloudflare rate limiting rule on the hostname (see below).
+- The order view polls one event about every 0.7 s while an order runs (roughly 6 D1 reads per poll, for about 10 seconds per order), so a script could generate more read load than the panel does; the per-client budget limits how many orders can be started, not how often an existing order is read.
 - Volumetric attacks (DDoS) are Cloudflare's job, not the Worker's.
 - The global limit is also a way to annoy other visitors: someone with enough addresses can use up the hourly budget. That is the price of a hard cost ceiling.
 - Fixed windows allow up to twice the limit around a window boundary. Counters and the cap are not one transaction, so concurrent requests can overshoot by a few events until the next cron run.

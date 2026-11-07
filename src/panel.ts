@@ -208,8 +208,8 @@ button.big { width:100%; max-width:420px; font-size:16px; font-weight:600; min-h
 .field label { display:block; font-size:14px; color:var(--muted); }
 .field input { width:100%; }
 .field input[aria-invalid="true"] { border-color:var(--accent); }
-.field .err { display:block; min-height:2.8em; font-size:13px; color:var(--accent); }
-.result { font-size:18px; font-weight:600; margin:4px 0 8px; min-height:3.2em; }
+.field .err { display:block; min-height:1.4em; font-size:13px; color:var(--accent); }
+.result { font-size:18px; font-weight:600; margin:4px 0 8px; min-height:1.7em; }
 .result strong { color:var(--ok); font-variant-numeric:tabular-nums; }
 .ctabox { text-align:center; }
 .ctabox a { display:inline-block; font-size:18px; font-weight:600; padding:12px 8px; min-height:44px; }
@@ -226,6 +226,8 @@ details.dev .about, details.dev .note, details.dev .try, details.dev .intake { m
   .compare { grid-template-columns:1fr; }
   .compare > div { min-height:104px; }
   button.big { min-height:68px; }
+  .field .err { min-height:2.8em; }
+  .result { min-height:3.4em; }
 }
 @media (prefers-reduced-motion:reduce) {
   *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
