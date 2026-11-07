@@ -1,4 +1,4 @@
-import type { DemoStore } from "../src/core/demo";
+import type { DemoStore, IntakeEntry } from "../src/core/demo";
 import { aggregateStatus } from "../src/core/state";
 import type {
   AttemptRecord,
@@ -29,6 +29,7 @@ interface Del {
 export class MemoryRepository implements Repository, DemoStore {
   events: NewEvent[] = [];
   deliveries: Del[] = [];
+  intake: IntakeEntry[] = [];
   counters = new Map<string, { windowStart: number; hits: number }>();
   private seq = 0;
 
@@ -163,5 +164,21 @@ export class MemoryRepository implements Repository, DemoStore {
   async trimEventsTo(keep: number) {
     const sorted = [...this.events].sort((a, b) => b.receivedAt - a.receivedAt || a.id.localeCompare(b.id));
     return this.remove(new Set(sorted.slice(keep).map((e) => e.id)));
+  }
+
+  async logIntake(e: Omit<IntakeEntry, "id">) {
+    this.intake.push({ ...e, id: this.intake.length + 1 });
+  }
+
+  async listIntake(limit: number) {
+    return [...this.intake].sort((a, b) => b.receivedAt - a.receivedAt || b.id - a.id).slice(0, limit);
+  }
+
+  async purgeIntakeBefore(cutoffMs: number) {
+    this.intake = this.intake.filter((e) => e.receivedAt >= cutoffMs);
+  }
+
+  async trimIntakeTo(keep: number) {
+    this.intake = (await this.listIntake(keep)).reverse();
   }
 }

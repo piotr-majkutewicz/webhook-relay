@@ -5,6 +5,7 @@ import {
   MAX_SAMPLE_REQUEST_BYTES,
   buildSampleBody,
   checkRateLimit,
+  isEmptyRequest,
   demoSource,
   parseDemoLimits,
   parseSampleRequest,
@@ -103,7 +104,14 @@ async function runDelivery(env: Env, repo: Repository): Promise<void> {
   }
 }
 
-async function handleAdmin(req: Request, env: Env, ctx: ExecutionContext, url: URL, repo: Repository): Promise<Response> {
+async function handleAdmin(
+  req: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  url: URL,
+  repo: Repository & DemoStore,
+  lazyDelivery: () => void,
+): Promise<Response> {
   if (isDemo(env)) {
     // Public and strictly read-only: no token, and nothing but GET (so no replay) even with a token.
     if (req.method !== "GET") return json(403, { error: "read-only in demo mode" }, { allow: "GET" });
@@ -113,7 +121,15 @@ async function handleAdmin(req: Request, env: Env, ctx: ExecutionContext, url: U
   }
   const parts = url.pathname.split("/").filter(Boolean); // ["admin", "events", id?, "replay"?]
 
+  // Demo only: duplicates ignored and requests rejected, so the panel can show them.
+  if (isDemo(env) && parts[1] === "intake" && parts.length === 2) {
+    return json(200, { entries: await repo.listIntake(30) });
+  }
+
   if (parts[1] !== "events") return json(404, { error: "not found" });
+
+  // Demo only: due retries are also processed when the panel reads (see createWorker).
+  if (isDemo(env)) lazyDelivery();
 
   if (parts.length === 2 && req.method === "GET") {
     const status = url.searchParams.get("status");
@@ -150,8 +166,21 @@ async function clientKey(req: Request, pepper: string): Promise<string> {
   return (await hmacSha256Hex(pepper, ip)).slice(0, 24); // salted hash: raw IPs are never stored
 }
 
-/** POST /demo/sample: server-side signed sample event for the built-in demo source. Demo mode only. */
-async function handleSample(req: Request, env: Env, ctx: ExecutionContext, url: URL, repo: Repository & DemoStore): Promise<Response> {
+type DemoAction = "sample" | "duplicate" | "bad-signature";
+
+/**
+ * POST /demo/sample, /demo/duplicate, /demo/bad-signature. Demo mode only.
+ * Every event is generated and signed on the server; the visitor only picks the action
+ * (and, for "sample", one of three scenarios). All three share the same limits.
+ */
+async function handleDemoAction(
+  action: DemoAction,
+  req: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  url: URL,
+  repo: Repository & DemoStore,
+): Promise<Response> {
   if (req.method !== "POST") return json(405, { error: "method not allowed" }, { allow: "POST" });
   const origin = req.headers.get("origin");
   if (origin !== null && origin !== url.origin) return json(403, { error: "cross-origin requests are not allowed" });
@@ -160,8 +189,14 @@ async function handleSample(req: Request, env: Env, ctx: ExecutionContext, url: 
 
   const raw = await readLimited(req, MAX_SAMPLE_REQUEST_BYTES);
   if (raw === null) return json(413, { error: "request too large" });
-  const parsed = parseSampleRequest(raw);
-  if (!parsed.ok) return json(400, { error: parsed.error });
+  let scenario: "flaky" | "ok" | "down" = "ok";
+  if (action === "sample") {
+    const parsed = parseSampleRequest(raw);
+    if (!parsed.ok) return json(400, { error: parsed.error });
+    scenario = parsed.scenario;
+  } else if (!isEmptyRequest(raw)) {
+    return json(400, { error: "this action takes no input" });
+  }
 
   const limits = parseDemoLimits(env);
   const now = Date.now();
@@ -178,22 +213,37 @@ async function handleSample(req: Request, env: Env, ctx: ExecutionContext, url: 
   if ((await repo.countEvents()) >= limits.maxEvents) await repo.trimEventsTo(limits.maxEvents - 1);
 
   const id = `evt_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
-  const body = buildSampleBody(id, parsed.scenario, Math.random(), now);
+  const body = buildSampleBody(id, scenario, Math.random(), now);
   const ts = String(Math.floor(now / 1000));
+  // A bad signature is made by signing with a different key; the real secret is never involved.
+  const signingKey = action === "bad-signature" ? `${secret}:not-the-key` : secret;
   const headers = new Headers({
-    "x-signature": `sha256=${await hmacSha256Hex(secret, `${ts}.${body}`)}`,
+    "x-signature": `sha256=${await hmacSha256Hex(signingKey, `${ts}.${body}`)}`,
     "x-timestamp": ts,
     "x-event-id": id,
   });
   // The same ingest path as a real webhook: signature, idempotency, atomic insert.
-  const result = await handleIngest(
-    { repo, getSource: () => ({ cfg: demoSource, secret }), nowMs: () => now, newId: () => crypto.randomUUID() },
-    DEMO_SOURCE,
-    headers,
-    body,
-  );
+  const ingest = () =>
+    handleIngest(
+      { repo, getSource: () => ({ cfg: demoSource, secret }), nowMs: () => now, newId: () => crypto.randomUUID() },
+      DEMO_SOURCE,
+      headers,
+      body,
+    );
+  const result = await ingest();
   if (result.status === 202) ctx.waitUntil(runDelivery(env, repo));
-  return json(result.status, { ...result.body, scenario: parsed.scenario });
+
+  if (action === "bad-signature") {
+    await repo.logIntake({ receivedAt: now, kind: "rejected", reason: result.body.error ?? "rejected", eventId: null, eventKey: id });
+    return json(200, { result: "rejected", reason: result.body.error ?? "rejected" });
+  }
+  if (action === "duplicate" && result.status === 202) {
+    // The very same request arrives a second time: the unique key makes it a no-op.
+    const again = await ingest();
+    await repo.logIntake({ receivedAt: now, kind: "duplicate", reason: "duplicate", eventId: result.body.id ?? null, eventKey: id });
+    return json(202, { ...result.body, scenario, duplicateIgnored: again.status === 200 });
+  }
+  return json(result.status, { ...result.body, scenario });
 }
 
 function robots(): Response {
@@ -202,7 +252,22 @@ function robots(): Response {
   });
 }
 
-async function route(req: Request, env: Env, ctx: ExecutionContext, makeRepo: RepoFactory): Promise<Response> {
+/**
+ * Demo only: besides the cron trigger (once a minute), due deliveries are also processed when the
+ * panel reads, so a retry shows up after seconds, not minutes. It is bounded (the usual batch size,
+ * at most one run per LAZY_MIN_INTERVAL_MS per Worker instance) and can only reach the simulated
+ * destination. It is an optimisation: correctness still comes from the lease in claimDue and the cron.
+ */
+const LAZY_MIN_INTERVAL_MS = 2000;
+
+function lazyDelivery(env: Env, ctx: ExecutionContext, repo: Repository, state: { lastLazyRun: number }): void {
+  const now = Date.now();
+  if (now - state.lastLazyRun < LAZY_MIN_INTERVAL_MS) return;
+  state.lastLazyRun = now;
+  ctx.waitUntil(runDelivery(env, repo));
+}
+
+async function route(req: Request, env: Env, ctx: ExecutionContext, makeRepo: RepoFactory, state: { lastLazyRun: number }): Promise<Response> {
   const url = new URL(req.url);
   const demo = isDemo(env);
 
@@ -238,9 +303,13 @@ async function route(req: Request, env: Env, ctx: ExecutionContext, makeRepo: Re
     return json(result.status, result.body);
   }
 
-  if (url.pathname === "/demo/sample" && demo) return handleSample(req, env, ctx, url, makeRepo(env));
+  const demoAction = demo ? /^\/demo\/(sample|duplicate|bad-signature)$/.exec(url.pathname) : null;
+  if (demoAction) return handleDemoAction(demoAction[1] as DemoAction, req, env, ctx, url, makeRepo(env));
 
-  if (url.pathname.startsWith("/admin/")) return handleAdmin(req, env, ctx, url, makeRepo(env));
+  if (url.pathname.startsWith("/admin/")) {
+    const repo = makeRepo(env);
+    return handleAdmin(req, env, ctx, url, repo, () => lazyDelivery(env, ctx, repo, state));
+  }
 
   if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/admin")) {
     const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
@@ -260,11 +329,12 @@ async function route(req: Request, env: Env, ctx: ExecutionContext, makeRepo: Re
 
 /** The Worker, with the repository injected so tests can run it without D1. */
 export function createWorker(makeRepo: RepoFactory): ExportedHandler<Env> {
+  const state = { lastLazyRun: 0 };
   return {
     async fetch(req, env, ctx) {
       let res: Response;
       try {
-        res = await route(req, env, ctx, makeRepo);
+        res = await route(req, env, ctx, makeRepo, state);
       } catch (e) {
         console.error("request failed", e instanceof Error ? e.message : e);
         res = json(500, { error: "internal error" });

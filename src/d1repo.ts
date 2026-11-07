@@ -1,4 +1,4 @@
-import type { DemoStore } from "./core/demo";
+import type { DemoStore, IntakeEntry } from "./core/demo";
 import { aggregateStatus } from "./core/state";
 import type {
   AttemptRecord,
@@ -264,5 +264,38 @@ export class D1Repository implements Repository, DemoStore {
 
   trimEventsTo(keep: number): Promise<number> {
     return this.deleteEventsWhere("SELECT id FROM events ORDER BY received_at DESC, id LIMIT -1 OFFSET ?1", [keep]);
+  }
+
+  async logIntake(e: Omit<IntakeEntry, "id">): Promise<void> {
+    await this.db
+      .prepare("INSERT INTO demo_intake_log (received_at, kind, reason, event_id, event_key) VALUES (?1, ?2, ?3, ?4, ?5)")
+      .bind(e.receivedAt, e.kind, e.reason, e.eventId, e.eventKey)
+      .run();
+  }
+
+  async listIntake(limit: number): Promise<IntakeEntry[]> {
+    const { results } = await this.db
+      .prepare("SELECT id, received_at, kind, reason, event_id, event_key FROM demo_intake_log ORDER BY received_at DESC, id DESC LIMIT ?1")
+      .bind(limit)
+      .all<{ id: number; received_at: number; kind: IntakeEntry["kind"]; reason: string; event_id: string | null; event_key: string | null }>();
+    return results.map((r) => ({
+      id: r.id,
+      receivedAt: r.received_at,
+      kind: r.kind,
+      reason: r.reason,
+      eventId: r.event_id,
+      eventKey: r.event_key,
+    }));
+  }
+
+  async purgeIntakeBefore(cutoffMs: number): Promise<void> {
+    await this.db.prepare("DELETE FROM demo_intake_log WHERE received_at < ?1").bind(cutoffMs).run();
+  }
+
+  async trimIntakeTo(keep: number): Promise<void> {
+    await this.db
+      .prepare("DELETE FROM demo_intake_log WHERE id IN (SELECT id FROM demo_intake_log ORDER BY received_at DESC, id DESC LIMIT -1 OFFSET ?1)")
+      .bind(keep)
+      .run();
   }
 }

@@ -96,6 +96,28 @@ export function simulateDestination(attempt: number, body: string): Response {
   return new Response(null, { status: fail ? 503 : 200 });
 }
 
+export interface IntakeEntry {
+  id: number;
+  receivedAt: number;
+  /** "duplicate": an identical event was ignored. "rejected": the request was refused. */
+  kind: "duplicate" | "rejected";
+  /** Stable identifier: "duplicate" or a signature verdict such as "bad_signature". */
+  reason: string;
+  eventId: string | null;
+  eventKey: string | null;
+}
+
+/** Only an empty body or `{}` is accepted by the actions that take no input. */
+export function isEmptyRequest(raw: string): boolean {
+  if (raw.trim() === "") return true;
+  try {
+    const v: unknown = JSON.parse(raw);
+    return typeof v === "object" && v !== null && !Array.isArray(v) && Object.keys(v).length === 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Counters and retention operations needed by DEMO_MODE (implemented by D1 and in memory). */
 export interface DemoStore {
   /** Adds one hit to the counter and returns the new value. */
@@ -106,6 +128,10 @@ export interface DemoStore {
   purgeEventsBefore(cutoffMs: number): Promise<number>;
   /** Keeps only the newest `keep` events and deletes the rest. Returns the number of events deleted. */
   trimEventsTo(keep: number): Promise<number>;
+  logIntake(entry: Omit<IntakeEntry, "id">): Promise<void>;
+  listIntake(limit: number): Promise<IntakeEntry[]>;
+  purgeIntakeBefore(cutoffMs: number): Promise<void>;
+  trimIntakeTo(keep: number): Promise<void>;
 }
 
 export type RateVerdict = { ok: true } | { ok: false; scope: "ip" | "global"; retryAfterSeconds: number };
@@ -139,6 +165,8 @@ export async function runRetention(
 ): Promise<{ expired: number; evicted: number }> {
   const expired = await store.purgeEventsBefore(nowMs - limits.ttlMs);
   const evicted = await store.trimEventsTo(limits.maxEvents);
+  await store.purgeIntakeBefore(nowMs - limits.ttlMs);
+  await store.trimIntakeTo(limits.maxEvents);
   await store.purgeCounters(nowMs - 2 * limits.windowMs);
   return { expired, evicted };
 }

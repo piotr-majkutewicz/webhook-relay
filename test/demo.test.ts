@@ -296,3 +296,98 @@ describe("no indexing", () => {
     }
   });
 });
+
+describe("demo actions: duplicate, bad signature, intake log", () => {
+  it("duplicate: stores and delivers the event once, logs the ignored copy", async () => {
+    const h = harness(DEMO);
+    const res = await h.call("/demo/duplicate", post({}));
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { id: string; duplicateIgnored: boolean };
+    expect(body.duplicateIgnored).toBe(true);
+    expect(h.repo.events).toHaveLength(1);
+    expect(h.repo.deliveries).toHaveLength(1);
+    expect(h.repo.deliveries[0]!.log).toHaveLength(1); // delivered once, not twice
+    expect(h.repo.deliveries[0]!.status).toBe("delivered");
+    expect(h.repo.intake).toMatchObject([{ kind: "duplicate", reason: "duplicate", eventId: body.id }]);
+    const list = (await (await h.call("/admin/intake")).json()) as { entries: { kind: string; eventId: string }[] };
+    expect(list.entries[0]).toMatchObject({ kind: "duplicate", eventId: body.id });
+  });
+
+  it("bad signature: rejected, no event, logged", async () => {
+    const h = harness(DEMO);
+    const res = await h.call("/demo/bad-signature", post());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ result: "rejected", reason: "bad_signature" });
+    expect(h.repo.events).toHaveLength(0);
+    expect(h.repo.intake).toMatchObject([{ kind: "rejected", reason: "bad_signature", eventId: null }]);
+  });
+
+  it("take no input, share the rate limits, and respect the same origin rules", async () => {
+    const h = harness({ ...DEMO, DEMO_RATE_PER_IP: "3" });
+    for (const path of ["/demo/duplicate", "/demo/bad-signature"]) {
+      expect((await h.call(path, post({ scenario: "down" }))).status).toBe(400);
+      expect((await h.call(path, post({}, { origin: "https://evil.test" }))).status).toBe(403);
+      expect((await h.call(path, { method: "GET" })).status).toBe(405);
+    }
+    expect((await h.call("/demo/sample", post({}))).status).toBe(202);
+    expect((await h.call("/demo/duplicate", post({}))).status).toBe(202);
+    expect((await h.call("/demo/bad-signature", post({}))).status).toBe(200);
+    expect((await h.call("/demo/bad-signature", post({}))).status).toBe(429);
+    expect((await h.call("/demo/duplicate", post({}))).status).toBe(429);
+  });
+
+  it("do not exist in normal mode, and /admin/intake needs the token there", async () => {
+    const h = harness();
+    for (const path of ["/demo/duplicate", "/demo/bad-signature"]) expect((await h.call(path, post({}))).status).toBe(404);
+    expect((await h.call("/admin/intake")).status).toBe(401);
+    expect((await h.call("/admin/intake", { headers: { authorization: "Bearer admin-token" } })).status).toBe(404);
+  });
+
+  it("/admin/intake is read-only", async () => {
+    const h = harness(DEMO);
+    expect((await h.call("/admin/intake", { method: "POST" })).status).toBe(403);
+    expect((await h.call("/admin/intake", { method: "DELETE" })).status).toBe(403);
+  });
+
+  it("retention also removes old intake entries and keeps the cap", async () => {
+    const h = harness({ ...DEMO, DEMO_TTL_HOURS: "1", DEMO_MAX_EVENTS: "2" });
+    const now = Date.now();
+    await h.repo.logIntake({ receivedAt: now - 2 * HOUR, kind: "rejected", reason: "bad_signature", eventId: null, eventKey: "old" });
+    for (let i = 0; i < 4; i++) await h.repo.logIntake({ receivedAt: now - i, kind: "rejected", reason: "bad_signature", eventId: null, eventKey: `k${i}` });
+    await h.worker.scheduled!({} as never, h.env, h.ctx);
+    await Promise.all(h.pending.splice(0));
+    expect(h.repo.intake.map((e) => e.eventKey).sort()).toEqual(["k0", "k1"]);
+  });
+});
+
+describe("demo: fast retries on read", () => {
+  it("processes due deliveries when the panel reads, at most once per interval, simulated destination only", async () => {
+    const netFetch = vi.fn(() => {
+      throw new Error("network must not be used in demo mode");
+    });
+    vi.stubGlobal("fetch", netFetch);
+    const h = harness({ ...DEMO, RETRY_BASE_SECONDS: "5", RETRY_MAX_SECONDS: "10" });
+    const base = Date.now();
+    await h.call("/demo/sample", post({ scenario: "flaky" }));
+    expect(h.repo.deliveries[0]!.attempts).toBe(1);
+    const at = (s: number) => vi.spyOn(Date, "now").mockReturnValue(base + s * 1000);
+    at(12); // past the first backoff (at most 5 s)
+    await h.call("/admin/events");
+    expect(h.repo.deliveries[0]!.attempts).toBe(2);
+    at(12.5); // within 2 s of the previous run: skipped
+    await h.call("/admin/events");
+    expect(h.repo.deliveries[0]!.attempts).toBe(2);
+    at(30); // past the second backoff (at most 10 s)
+    await h.call(`/admin/events/${h.repo.events[0]!.id}`);
+    expect(h.repo.deliveries[0]!).toMatchObject({ status: "delivered", attempts: 3 });
+    expect(netFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not run in normal mode", async () => {
+    const h = harness({ RETRY_BASE_SECONDS: "5" });
+    await h.repo.insertEvent({ id: "e", source: "shop", eventKey: "k", body: "{}", receivedAt: 0 }, ["crm"]);
+    vi.spyOn(Date, "now").mockReturnValue(10 * HOUR);
+    await h.call("/admin/events", { headers: { authorization: "Bearer admin-token" } });
+    expect(h.repo.deliveries[0]!.attempts).toBe(0);
+  });
+});
