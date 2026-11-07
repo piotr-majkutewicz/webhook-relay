@@ -1,0 +1,29 @@
+
+1) valid signed event from 'shop'
+    [crm] request #1 for f12bf53f signature valid -> 500
+   -> 202 {"result":"accepted","id":"f12bf53f-2f55-4968-a876-ff77e4324683"}
+2) the same event sent again (same event id)
+   -> 200 {"result":"duplicate","id":"f12bf53f-2f55-4968-a876-ff77e4324683"}
+3) event with a wrong signature
+   -> 401 {"result":"rejected","error":"bad_signature"}
+4) event with a stale timestamp (signed correctly, 1 hour old)
+   -> 401 {"result":"rejected","error":"stale_timestamp"}
+5) valid event from 'payments' (idempotency key taken from payload field 'id')
+    [crm] request #1 for c84904c3 signature valid -> 500
+   -> 202 {"result":"accepted","id":"c84904c3-bc47-455b-a663-ebc98cba3428"}
+
+Waiting for retries (the fake CRM fails 3 times per event, then recovers)...
+    [crm] request #2 for f12bf53f signature valid -> 500
+    [crm] request #2 for c84904c3 signature valid -> 500
+    [crm] request #3 for f12bf53f signature valid -> 500
+    [crm] request #3 for c84904c3 signature valid -> 500
+    [crm] request #4 for f12bf53f signature valid -> 200
+    [crm] request #4 for c84904c3 signature valid -> 200
+
+Result:
+  event shop/evt-mw6k61kt: delivered
+    -> crm: delivered, attempts=4, codes=[500, 500, 500, 200]
+  event payments/pay_mw6k61kt: delivered
+    -> crm: delivered, attempts=4, codes=[500, 500, 500, 200]
+
+Events in the database: 2 (this run adds two; the duplicate, the bad signature and the stale timestamp are never stored)
