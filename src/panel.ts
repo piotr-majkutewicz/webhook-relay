@@ -25,6 +25,15 @@ function format(text: string, vars: Record<string, string | number> = {}): strin
   return text.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m));
 }
 
+const cap = (v: string): string => v.charAt(0).toUpperCase() + v.slice(1);
+
+const ICONS: Record<string, string> = {
+  invoice: '<svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h7M9 17h7"/></svg>',
+  email: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>',
+  warehouse: '<svg viewBox="0 0 24 24"><path d="M3 9l9-5 9 5v11H3z"/><path d="M9 20v-6h6v6"/></svg>',
+  sheet: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/></svg>',
+};
+
 /** Demo pages carry no token or replay texts at all. */
 function dictFor(d: Dict, isDemo: boolean): Partial<Dict> {
   if (!isDemo) return d;
@@ -148,6 +157,77 @@ footer { padding:16px 20px 28px; border-top:1px solid var(--line); margin-top:16
   .events td::before { content:attr(data-label); color:var(--muted); flex:none; }
   .events td > * { min-width:0; text-align:right; }
 }
+.sr-only { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+button.busy::before { content:""; display:inline-block; width:14px; height:14px; margin-right:8px; vertical-align:-2px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+@keyframes pulse { 0%,100% { transform:scale(.7); opacity:.45; } 50% { transform:scale(1); opacity:1; } }
+@keyframes enter { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+@keyframes draw { from { stroke-dashoffset:24; } to { stroke-dashoffset:0; } }
+.hero, .calc, .ctabox { margin:16px 20px 0; padding:16px; border:1px solid var(--line2); border-radius:8px; background:var(--card); }
+.hero h2 { font-size:22px; }
+.hero p { margin:0 0 8px; }
+.check { display:flex; gap:10px; align-items:flex-start; margin:12px 0; min-height:44px; cursor:pointer; }
+.check input { width:24px; height:24px; min-height:24px; flex:none; margin:0; accent-color:var(--accent); }
+button.big { width:100%; max-width:420px; font-size:16px; font-weight:600; min-height:52px; }
+.steps { list-style:none; margin:16px 0 0; padding:0; display:grid; gap:8px; }
+.step { display:grid; grid-template-columns:44px minmax(0,1fr) minmax(0,150px); gap:4px 12px; align-items:center; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:#1d1815; }
+.step.enter { animation:enter .35s ease both; }
+.step .ico { width:44px; height:44px; display:grid; place-items:center; color:var(--muted); }
+.step .ico svg { width:26px; height:26px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+.step .body strong { display:block; }
+.step .hint { font-size:13px; display:block; }
+.step .note { display:grid; font-size:13px; color:var(--warn); }
+.step .note > span { grid-area:1/1; visibility:hidden; }
+.step.st-retry .note .n1, .step.retried .note .n2 { visibility:visible; }
+.step .state { display:flex; align-items:center; gap:8px; justify-content:flex-end; text-align:right; font-size:14px; }
+.ind { position:relative; width:28px; height:28px; flex:none; }
+.ind > * { position:absolute; inset:0; margin:auto; opacity:0; }
+.i-pulse { width:12px; height:12px; border-radius:50%; background:var(--warn); }
+.i-spin { width:22px; height:22px; border:3px solid var(--line2); border-top-color:var(--accent); border-radius:50%; }
+.i-warn, .i-check { width:26px; height:26px; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.i-warn { stroke:var(--warn); }
+.i-check { stroke:var(--ok); }
+.i-check .tick { stroke-dasharray:24; stroke-dashoffset:0; }
+.st-idle { opacity:.6; }
+.st-waiting .i-pulse { opacity:1; animation:pulse 1.4s ease-in-out infinite; }
+.st-running .i-spin { opacity:1; animation:spin .8s linear infinite; }
+.st-retry .i-warn { opacity:1; }
+.st-retry .stxt { color:var(--warn); }
+.st-done .i-check { opacity:1; }
+.st-done .i-check .tick { animation:draw .45s ease-out both; }
+.st-done .stxt { color:var(--ok); }
+.st-failed .stxt { color:var(--accent); }
+.progress { height:10px; border-radius:99px; background:var(--line); margin:16px 0 4px; overflow:hidden; }
+.progress .bar { height:100%; width:0; background:var(--ok); transition:width .4s ease; }
+.compare { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+.compare > div { border:1px solid var(--line2); border-radius:8px; padding:12px; min-height:64px; font-weight:600; }
+.compare .auto { border-color:var(--ok); }
+.small { font-size:13px; }
+.calc h2 { margin-bottom:4px; }
+.fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr)); gap:12px; margin:12px 0; }
+.field label { display:block; font-size:14px; color:var(--muted); }
+.field input { width:100%; }
+.field input[aria-invalid="true"] { border-color:var(--accent); }
+.field .err { display:block; min-height:2.8em; font-size:13px; color:var(--accent); }
+.result { font-size:18px; font-weight:600; margin:4px 0 8px; min-height:3.2em; }
+.result strong { color:var(--ok); font-variant-numeric:tabular-nums; }
+.ctabox { text-align:center; }
+.ctabox a { display:inline-block; font-size:18px; font-weight:600; padding:12px 8px; min-height:44px; }
+details.dev { margin:16px 20px 0; border:1px solid var(--line2); border-radius:8px; background:var(--card); }
+details.dev > summary { cursor:pointer; padding:12px 16px; min-height:44px; font-weight:600; }
+details.dev > .devbody { padding:0 0 16px; }
+details.dev .about, details.dev .note, details.dev .try, details.dev .intake { margin-left:12px; margin-right:12px; }
+@media (max-width:900px) {
+  .hero, .calc, .ctabox, details.dev { margin:12px 12px 0; }
+}
+@media (max-width:700px) {
+  .step { grid-template-columns:44px minmax(0,1fr); }
+  .step .state { grid-column:2; justify-content:flex-start; text-align:left; }
+  .compare { grid-template-columns:1fr; }
+}
+@media (prefers-reduced-motion:reduce) {
+  *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+}
 </style>
 </head>
 <body>
@@ -167,8 +247,54 @@ footer { padding:16px 20px 28px; border-top:1px solid var(--line); margin-top:16
 </header>${
     isDemo
       ? `
+<section class="hero" aria-labelledby="hero-title">
+  <h2 id="hero-title" data-i18n="heroTitle">${t("heroTitle")}</h2>
+  <p data-i18n="heroText">${t("heroText")}</p>
+  <p class="muted" data-i18n="heroCart">${t("heroCart")}</p>
+  <label class="check"><input type="checkbox" id="hiccup" checked><span data-i18n="hiccupLabel">${t("hiccupLabel")}</span></label>
+  <button id="order" class="primary big" type="button" aria-busy="false"><span data-i18n="orderButton">${t("orderButton")}</span></button>
+  <div id="omsg" class="msg" role="status"></div>
+  <ol class="steps" id="steps" aria-label="${t("orderRegion")}" data-i18n-aria="orderRegion">${["invoice", "email", "warehouse", "sheet"]
+    .map(
+      (st) => `
+    <li class="step st-idle" data-step="${st}">
+      <span class="ico" aria-hidden="true">${ICONS[st]}</span>
+      <span class="body"><strong data-i18n="step${cap(st)}">${t(("step" + cap(st)) as Key)}</strong><span class="hint" data-i18n="hint${cap(st)}">${t(("hint" + cap(st)) as Key)}</span><span class="note"><span class="n1" data-i18n="noteRetry">${t("noteRetry")}</span><span class="n2" data-i18n="noteRetried">${t("noteRetried")}</span></span></span>
+      <span class="state"><span class="ind" aria-hidden="true"><span class="i-pulse"></span><span class="i-spin"></span><svg class="i-warn" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/></svg><svg class="i-check" viewBox="0 0 24 24"><path class="tick" d="M5 13l4 4 10-10"/></svg></span><span class="stxt">${t("stateIdle")}</span></span>
+    </li>`,
+    )
+    .join("")}
+  </ol>
+  <div class="progress" role="progressbar" aria-labelledby="progress-label" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0"><div class="bar" id="bar"></div></div>
+  <div id="progress-label" class="muted small"></div>
+  <div class="compare">
+    <div id="cmpManual"></div>
+    <div id="cmpAuto" class="auto"></div>
+  </div>
+  <p class="muted small" data-i18n="compareNote">${t("compareNote")}</p>
+  <div id="live" class="sr-only" role="status" aria-live="polite"></div>
+</section>
+<section class="calc" aria-labelledby="calc-title">
+  <h2 id="calc-title" data-i18n="calcTitle">${t("calcTitle")}</h2>
+  <p class="muted" data-i18n="calcAssumptions">${t("calcAssumptions")}</p>
+  <div class="fields">
+    <div class="field"><label for="calcOrders" data-i18n="calcOrders">${t("calcOrders")}</label><input id="calcOrders" type="text" inputmode="numeric" value="200" autocomplete="off"><span class="err" id="errOrders"></span></div>
+    <div class="field"><label for="calcMinutes" data-i18n="calcMinutes">${t("calcMinutes")}</label><input id="calcMinutes" type="text" inputmode="decimal" value="8" autocomplete="off"><span class="err" id="errMinutes"></span></div>
+    <div class="field"><label for="calcRate" data-i18n="calcRate">${t("calcRate")}</label><input id="calcRate" type="text" inputmode="decimal" value="80" autocomplete="off"><span class="err" id="errRate"></span></div>
+  </div>
+  <div class="result" id="calcResult" aria-hidden="true"></div>
+  <div id="calcLive" class="sr-only" role="status" aria-live="polite"></div>
+  <p class="muted small" data-i18n="calcDisclaimer">${t("calcDisclaimer")}</p>
+</section>
+<section class="ctabox">
+  <a class="cta" href="https://piotrmajkutewicz.pl" rel="noopener" data-i18n="cta">${t("cta")}</a>
+</section>
+<details class="dev" id="dev">
+<summary data-i18n="devSummary">${t("devSummary")}</summary>
+<div class="devbody">
 <section class="about" aria-labelledby="about-title">
   <h2 id="about-title" data-i18n="aboutTitle">${t("aboutTitle")}</h2>
+  <p data-i18n="devIntro">${t("devIntro")}</p>
   <p data-i18n="aboutText">${t("aboutText")}</p>
   <div class="flow">
     <div class="stage"><strong data-i18n="flowSource">${t("flowSource")}</strong><span data-i18n="flowSourceNote">${t("flowSourceNote")}</span></div>
@@ -215,9 +341,8 @@ footer { padding:16px 20px 28px; border-top:1px solid var(--line); margin-top:16
   <p class="muted" data-i18n="intakeHint">${t("intakeHint")}</p>
   <div id="intake"></div>
 </section>
-<footer>
-  <a class="cta" href="https://piotrmajkutewicz.pl" rel="noopener" data-i18n="cta">${t("cta")}</a>
-</footer>`
+</div>
+</details>`
       : ""
   }
 <script nonce="${nonce}" type="application/json" id="i18n">${i18nJson}</script>
@@ -230,7 +355,9 @@ footer { padding:16px 20px 28px; border-top:1px solid var(--line); margin-top:16
   var token = ""; // memory only
   var selected = null, timer = null;
   var lastEvents = null, lastDetail = null, lastIntake = [], msgState = null, amsgState = null;
-  var rowMap = {}, detailSig = null, intakeSig = null, busy = false, loading = false;
+  var rowMap = {}, detailSig = null, intakeSig = null, busy = false, busyBtn = null, loading = false;
+  var order = null, orderBusy = false, calcOk = null, reduceMotion = false;
+  try { reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { /* ignore */ }
   var $ = function (id) { return document.getElementById(id); };
 
   // ---- language: ?lang= (saved), then the saved choice, then Polish ----
@@ -311,7 +438,8 @@ footer { padding:16px 20px 28px; border-top:1px solid var(--line); margin-top:16
     Array.prototype.forEach.call(document.querySelectorAll("[data-i18n]"), function (n) {
       var k = n.getAttribute("data-i18n");
       if (k === "autoOn" || k === "autoOff") k = timer ? "autoOn" : "autoOff";
-      if (k === "runButton" && busy) k = "sending";
+      if (n === busyBtn && busy) k = "sending";
+      if (k === "orderButton" && orderBusy) k = "sending";
       setText(n, t(k, vars));
     });
     Array.prototype.forEach.call(document.querySelectorAll("[data-i18n-ph]"), function (n) { n.setAttribute("placeholder", t(n.getAttribute("data-i18n-ph"))); });
@@ -385,6 +513,7 @@ footer { padding:16px 20px 28px; border-top:1px solid var(--line); margin-top:16
     if (!DEMO) token = $("token").value;
     var f = $("filter").value;
     loading = true;
+    $("load").classList.add("busy");
     var reqs = [api("/admin/events?limit=" + (DEMO ? 10 : 100) + (f ? "&status=" + encodeURIComponent(f) : ""))];
     if (DEMO) reqs.push(api("/admin/intake"));
     Promise.all(reqs).then(function (rs) {
@@ -398,7 +527,7 @@ footer { padding:16px 20px 28px; border-top:1px solid var(--line); margin-top:16
       if (rs[1] && rs[1].ok) {
         whenIdle("intake", force, function () { lastIntake = rs[1].data.entries; renderIntake(); renderDetail(); });
       }
-    }).catch(function () { setMsg("networkError"); }).then(function () { loading = false; });
+    }).catch(function () { setMsg("networkError"); }).then(function () { loading = false; $("load").classList.remove("busy"); });
   }
 
   // ---- intake log (demo) ----
@@ -492,16 +621,17 @@ ${isDemo ? "" : `    var canReplay = e.deliveryList.some(function (d) { return d
     });
     e.deliveryList.forEach(function (d) {
       if (e.deliveryList.length > 1 || d.destination !== "simulated") {
-        var nm = d.destination === "simulated" ? t("destSimulated") : d.destination;
+        var dk = "dest" + d.destination.charAt(0).toUpperCase() + d.destination.slice(1);
+        var nm = I18N.pl[dk] ? t(dk) : d.destination;
         ol.appendChild(step("info", t("destination", { name: nm }), ""));
       }
       d.attemptLog.forEach(function (a) {
         var detail = a.error || (a.statusCode === null ? "-" : "HTTP " + a.statusCode);
         var res = a.outcome === "success" ? "attemptResultOk" : a.outcome === "permanent" ? "attemptResultPermanent" : "attemptResultRetry";
-        var dk = a.outcome === "success" ? "attemptOkDesc" : a.outcome === "permanent" ? "attemptPermanentDesc" : "attemptRetryDesc";
+        var adk = a.outcome === "success" ? "attemptOkDesc" : a.outcome === "permanent" ? "attemptPermanentDesc" : "attemptRetryDesc";
         var title = t("stepAttempt", { n: a.attemptNo, result: t(res) }) + (a.replayNo > 0 ? t("attemptReplaySuffix", { r: a.replayNo }) : "");
         var meta = when(a.startedAt) + " | " + (a.statusCode === null ? "-" : a.statusCode) + " | " + a.durationMs + " ms" + (a.error ? " | " + a.error : "");
-        ol.appendChild(step(a.outcome === "success" ? "ok" : "fail", title, t(dk, { detail: detail }), meta));
+        ol.appendChild(step(a.outcome === "success" ? "ok" : "fail", title, t(adk, { detail: detail }), meta));
       });
       if (d.status === "delivered") ol.appendChild(step("ok", t("stepDelivered"), t("stepDeliveredDesc", { n: d.attempts }), when(d.deliveredAt)));
       else if (d.status === "dead") ol.appendChild(step("dead", t("stepDead"), t("stepDeadDesc", { n: d.attempts })));
@@ -534,6 +664,7 @@ ${isDemo ? "" : `    var canReplay = e.deliveryList.some(function (d) { return d
   // The countdown is the only thing that changes every second, and only its text.
   setInterval(function () {
     if (document.hidden) return;
+    if (DEMO && order && order.phase === "running") renderOrder();
     Array.prototype.forEach.call(document.querySelectorAll("[data-next-at]"), function (li) {
       setText(li.descEl, t("stepNextDesc", { when: cd(Number(li.getAttribute("data-next-at"))) }));
     });
@@ -570,10 +701,204 @@ ${isDemo ? "" : `    var canReplay = e.deliveryList.some(function (d) { return d
     renderList();
     renderIntake();
     renderDetail();
+    if (DEMO) { renderOrder(); renderCalcText(); }
   }
   Array.prototype.forEach.call(document.querySelectorAll("[data-lang]"), function (b) {
     b.addEventListener("click", function () { setLang(b.getAttribute("data-lang")); });
   });
+
+
+  // ================= demo story: order automation =================
+  var STEPS = ["invoice", "email", "warehouse", "sheet"];
+  function cap(v) { return v.charAt(0).toUpperCase() + v.slice(1); }
+  function numFmt(opts) { return new Intl.NumberFormat(lang === "pl" ? "pl-PL" : "en-GB", opts); }
+  function announce(text) { var n = $("live"); if (n) n.textContent = text; }
+
+  /** The state of one step comes from the real delivery returned by the API, never from a timer. */
+  function stepState(d) {
+    if (!d) return { s: order && order.phase !== "idle" ? "waiting" : "idle" };
+    if (d.status === "delivered") return { s: "done", retried: d.attempts > 1 };
+    if (d.status === "failed" || d.status === "dead") return { s: "failed" };
+    if (d.attempts === 0) return { s: "waiting" };
+    if (d.attemptLog.length < d.attempts) return { s: "running" };
+    return { s: "retry", at: d.nextAttemptAt };
+  }
+  function setOrderBusy(on) {
+    orderBusy = on;
+    var b = $("order");
+    b.disabled = on;
+    b.setAttribute("aria-busy", String(on));
+    b.classList.toggle("busy", on);
+    setText(b.firstChild, t(on ? "sending" : "orderButton"));
+  }
+  function autoText() {
+    if (!order || order.phase === "idle" || order.phase === "error") return t("compareAutoIdle");
+    if (order.phase === "running" || order.phase === "starting") return t("compareAutoRunning");
+    return t("compareAuto", { s: numFmt({ minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(order.shownSeconds === undefined ? order.seconds : order.shownSeconds) });
+  }
+  function renderOrder() {
+    var ds = {};
+    if (order && order.detail) order.detail.deliveryList.forEach(function (d) { ds[d.destination] = d; });
+    var done = 0;
+    STEPS.forEach(function (name) {
+      var li = document.querySelector('[data-step="' + name + '"]');
+      var st = stepState(ds[name]);
+      if (st.s === "done") done++;
+      var cls = "step st-" + st.s + (st.retried ? " retried" : "") + (li.getAttribute("data-enter") ? " enter" : "");
+      if (li.className !== cls) li.className = cls;
+      var text = st.s === "idle" ? t("stateIdle") : st.s === "waiting" ? t("stateWaiting") : st.s === "running" ? t("stateRunning")
+        : st.s === "retry" ? t("stateRetry", { when: cd(st.at) }) : st.s === "done" ? t(st.retried ? "stateDoneRetried" : "stateDone") : t("stateFailed");
+      setText(li.querySelector(".stxt"), text);
+      var prev = li.getAttribute("data-last");
+      var key = st.s + (st.retried ? "r" : "");
+      if (prev !== key) {
+        li.setAttribute("data-last", key);
+        if (st.s === "retry" || st.s === "done" || st.s === "failed") announce(t("liveStep", { step: t("step" + cap(name)), state: text }));
+      }
+    });
+    var bar = $("bar");
+    bar.style.width = (done * 25) + "%";
+    var pb = bar.parentNode;
+    pb.setAttribute("aria-valuenow", String(done));
+    pb.setAttribute("aria-valuetext", t("progressLabel", { n: done, total: 4 }));
+    setText($("progress-label"), t("progressLabel", { n: done, total: 4 }));
+    setText($("cmpManual"), t("compareManual", { min: numFmt({ maximumFractionDigits: 1 }).format(calcOk ? calcOk.minutes : 8) }));
+    setText($("cmpAuto"), autoText());
+    return done;
+  }
+  function animateValue(from, to, ms, apply, done) {
+    if (reduceMotion || ms <= 0 || from === to) { apply(to); if (done) done(); return; }
+    var t0 = performance.now();
+    (function frame(now) {
+      var k = Math.min(1, (now - t0) / ms);
+      apply(from + (to - from) * (1 - Math.pow(1 - k, 3)));
+      if (k < 1) requestAnimationFrame(frame); else if (done) done();
+    })(t0);
+  }
+  function finishOrder(detail) {
+    var last = 0;
+    detail.deliveryList.forEach(function (d) { if (d.deliveredAt && d.deliveredAt > last) last = d.deliveredAt; });
+    order.phase = "done";
+    order.seconds = Math.max(0.1, Math.round((last - detail.receivedAt) / 100) / 10);
+    order.shownSeconds = 0;
+    renderOrder();
+    animateValue(0, order.seconds, 700, function (v) { order.shownSeconds = v; setText($("cmpAuto"), autoText()); }, function () { order.shownSeconds = undefined; renderOrder(); });
+    announce(t("liveAllDone", { s: numFmt({ minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(order.seconds) }));
+    setOrderBusy(false);
+  }
+  function pollOrder() {
+    if (!order || order.phase !== "running") return;
+    if (Date.now() - order.startedAt > 90000) { order.phase = "error"; renderOrder(); setOrderMsg("orderSlow"); setOrderBusy(false); return; }
+    api("/admin/events/" + encodeURIComponent(order.id)).then(function (r) {
+      if (!order || order.phase !== "running") return;
+      if (r.ok) {
+        order.detail = r.data;
+        var done = renderOrder();
+        if (done === STEPS.length && r.data.deliveryList.length === STEPS.length) { finishOrder(r.data); return; }
+      }
+      order.timer = setTimeout(pollOrder, 700);
+    }).catch(function () { if (order) order.timer = setTimeout(pollOrder, 1500); });
+  }
+  var omsgState = null;
+  function setOrderMsg(key, vars) { omsgState = key ? { key: key, vars: vars } : null; $("omsg").textContent = key ? t(key, vars) : ""; }
+  function startOrder() {
+    if (orderBusy) return;
+    // Immediate feedback, before any network round trip.
+    setOrderBusy(true);
+    setOrderMsg(null);
+    if (order && order.timer) clearTimeout(order.timer);
+    order = { phase: "starting", startedAt: Date.now(), detail: null };
+    STEPS.forEach(function (name, i) {
+      var li = document.querySelector('[data-step="' + name + '"]');
+      li.removeAttribute("data-last");
+      li.setAttribute("data-enter", "1");
+      li.style.animationDelay = reduceMotion ? "0s" : (i * 90) + "ms";
+      li.classList.remove("enter"); void li.offsetWidth;
+    });
+    renderOrder();
+    announce(t("orderStarted"));
+    fetch("/demo/order", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hiccup: $("hiccup").checked }) })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, status: r.status, retryAfter: r.headers.get("retry-after"), data: d }; }); })
+      .then(function (r) {
+        if (!r.ok) {
+          order = null; renderOrder(); setOrderBusy(false);
+          if (r.status === 429) { var secs = Number(r.retryAfter) || 60; setOrderMsg("rateLimited", { minutes: Math.max(1, Math.ceil(secs / 60)) }); }
+          else if (r.status === 403) setOrderMsg("forbidden");
+          else if (r.status === 503) setOrderMsg("notConfigured");
+          else setOrderMsg("orderError");
+          return;
+        }
+        order.id = r.data.id; order.phase = "running";
+        pollOrder();
+      })
+      .catch(function () { order = null; renderOrder(); setOrderBusy(false); setOrderMsg("networkError"); });
+  }
+  function initOrder() {
+    $("order").addEventListener("click", startOrder);
+    renderOrder();
+  }
+
+  // ================= savings calculator =================
+  var CALC = {
+    orders: { id: "calcOrders", err: "errOrders", msg: "calcErrOrders", min: 1, max: 100000, int: true },
+    minutes: { id: "calcMinutes", err: "errMinutes", msg: "calcErrMinutes", min: 0.5, max: 240 },
+    rate: { id: "calcRate", err: "errRate", msg: "calcErrRate", min: 1, max: 2000 }
+  };
+  function parseField(f) {
+    var raw = $(f.id).value.trim().replace(/\\s/g, "").replace(",", ".");
+    if (raw === "" || !/^\\d+(\\.\\d+)?$/.test(raw)) return null;
+    var v = Number(raw);
+    if (!isFinite(v) || v < f.min || v > f.max || (f.int && Math.floor(v) !== v)) return null;
+    return v;
+  }
+  var shown = { hours: null, money: null };
+  function renderCalcText() {
+    if (!calcOk) return;
+    var box = $("calcResult");
+    box.replaceChildren();
+    var parts = t("calcResult").split(/(\\{hours\\}|\\{money\\})/);
+    parts.forEach(function (p) {
+      if (p === "{hours}" || p === "{money}") {
+        var st = document.createElement("strong");
+        st.setAttribute("data-k", p === "{hours}" ? "hours" : "money");
+        st.textContent = fmtCalc(p === "{hours}" ? "hours" : "money", shown[p === "{hours}" ? "hours" : "money"]);
+        box.appendChild(st);
+      } else if (p) box.appendChild(document.createTextNode(p));
+    });
+  }
+  function fmtCalc(k, v) { return numFmt(k === "hours" ? { minimumFractionDigits: 1, maximumFractionDigits: 1 } : { maximumFractionDigits: 0 }).format(v); }
+  function updateCalc() {
+    var vals = {}, ok = true;
+    Object.keys(CALC).forEach(function (k) {
+      var f = CALC[k], v = parseField(f), input = $(f.id);
+      vals[k] = v;
+      input.setAttribute("aria-invalid", String(v === null));
+      input.setAttribute("aria-describedby", f.err);
+      setText($(f.err), v === null ? t(f.msg) : "");
+      if (v === null) ok = false;
+    });
+    if (!ok) return;
+    var hours = vals.orders * vals.minutes / 60;
+    var target = { hours: hours, money: hours * vals.rate };
+    var from = { hours: shown.hours === null ? 0 : shown.hours, money: shown.money === null ? 0 : shown.money };
+    calcOk = { minutes: vals.minutes };
+    if (shown.hours === null) { shown.hours = 0; shown.money = 0; }
+    renderCalcText();
+    ["hours", "money"].forEach(function (k) {
+      animateValue(from[k], target[k], 500, function (v) {
+        shown[k] = v;
+        var n = document.querySelector('#calcResult [data-k="' + k + '"]');
+        if (n) n.textContent = fmtCalc(k, v);
+      }, function () {
+        if (k === "money") $("calcLive").textContent = t("calcResult", { hours: fmtCalc("hours", target.hours), money: fmtCalc("money", target.money) });
+      });
+    });
+    renderOrder();
+  }
+  function initCalc() {
+    Object.keys(CALC).forEach(function (k) { $(CALC[k].id).addEventListener("input", updateCalc); });
+    updateCalc();
+  }
 
   $("load").addEventListener("click", function () { load(true); });
   $("filter").addEventListener("change", function () { load(true); });
@@ -590,7 +915,7 @@ ${isDemo ? "" : `    var canReplay = e.deliveryList.some(function (d) { return d
     Array.prototype.forEach.call(buttons, function (btn) {
       btn.addEventListener("click", function () {
         var a = actions[btn.getAttribute("data-action")];
-        busy = true; applyStatic();
+        busy = true; busyBtn = btn; btn.classList.add("busy"); applyStatic();
         Array.prototype.forEach.call(buttons, function (b) { b.disabled = true; });
         setAmsg(null);
         fetch(a[0], { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(a[1]) }).then(function (r) {
@@ -601,7 +926,7 @@ ${isDemo ? "" : `    var canReplay = e.deliveryList.some(function (d) { return d
           setAuto(true);
           load(true); if (selected) showDetail(selected, true);
         }).catch(function () { setAmsg("networkError"); })
-          .then(function () { busy = false; applyStatic(); Array.prototype.forEach.call(buttons, function (b) { b.disabled = false; }); });
+          .then(function () { busy = false; busyBtn = null; btn.classList.remove("busy"); applyStatic(); Array.prototype.forEach.call(buttons, function (b) { b.disabled = false; }); });
       });
     });
   } else {
@@ -609,7 +934,16 @@ ${isDemo ? "" : `    var canReplay = e.deliveryList.some(function (d) { return d
   }
   applyStatic();
   renderDetail();
-  if (DEMO) { renderIntake(); load(true); }
+  if (DEMO) {
+    renderIntake();
+    initOrder();
+    initCalc();
+    // The developer view loads when it is first opened, not on every visit.
+    var devLoaded = false;
+    $("dev").addEventListener("toggle", function () {
+      if ($("dev").open && !devLoaded) { devLoaded = true; load(true); }
+    });
+  }
 })();
 </script>
 </body>

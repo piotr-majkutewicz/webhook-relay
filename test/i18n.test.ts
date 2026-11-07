@@ -86,16 +86,41 @@ describe("panel language", () => {
 
   it("demo: Polish texts and CTA, and no replay or token texts in either language", async () => {
     const html = await (await harness({ DEMO_MODE: "true" }).call("/")).text();
-    expect(html).toContain("Co to jest?");
+    expect(html).toContain("Automatyzacja zamówienia");
+    expect(html).toContain("Złóż zamówienie w przykładowym sklepie");
+    expect(html).toContain("Faktura wystawiona");
+    expect(html).toContain("Dla programistów: co dzieje się pod spodem");
     expect(html).toContain("System odbiorcy chwilowo nie działa");
     expect(html).toContain("To samo powiadomienie przychodzi dwa razy");
-    expect(html).toContain("Potrzebujesz niezawodnych integracji między swoimi systemami? Napisz do Piotra Majkutewicza.");
+    expect(html).toContain("Chcesz zautomatyzować własny proces? Napisz do Piotra Majkutewicza.");
     expect(html).toContain('href="https://piotrmajkutewicz.pl" rel="noopener"');
     expect(html).toContain("24 h");
-    expect(html).toContain("500");
+    expect(html).toContain("300");
     for (const word of [dictionaries.pl.replayButton, dictionaries.en.replayButton, dictionaries.en.tokenLabel, dictionaries.pl.tokenLabel, "/replay"]) {
       expect(html).not.toContain(word);
     }
+  });
+
+  it("demo: the story has four steps, a calculator with validation hooks, and the developer view is collapsed", async () => {
+    const html = await (await harness({ DEMO_MODE: "true" }).call("/")).text();
+    for (const step of ["invoice", "email", "warehouse", "sheet"]) expect(html).toContain(`data-step="${step}"`);
+    expect(html).toContain('id="order"');
+    expect(html).toContain('role="progressbar"');
+    expect(html).toMatch(/<details class="dev" id="dev">/);
+    expect(html).not.toMatch(/<details[^>]*\sopen/);
+    for (const id of ["calcOrders", "calcMinutes", "calcRate"]) expect(html).toContain(`id="${id}"`);
+    expect(html).toContain("przykładowe założenia");
+    expect(html).toContain("a nie wynik pomiaru ani obietnica");
+    expect(html).toContain("prefers-reduced-motion");
+    expect(html).not.toMatch(/<[^>]+\sstyle=/); // the CSP forbids inline style attributes
+    const en = await (await harness({ DEMO_MODE: "true" }).call("/?lang=en")).text();
+    expect(en).toContain("Place an order in the sample shop");
+    expect(en).toContain("Want to automate your own process? Write to Piotr Majkutewicz.");
+  });
+
+  it("normal mode has no story, no details wrapper and no order button", async () => {
+    const html = await (await harness().call("/")).text();
+    for (const marker of ['id="order"', 'class="hero"', "<details", 'id="calcOrders"']) expect(html).not.toContain(marker);
   });
 
   it("normal mode: Polish token field and replay text available", async () => {
