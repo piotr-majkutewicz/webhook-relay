@@ -36,7 +36,11 @@ jobs:
           echo "API token: raw length ${#CLOUDFLARE_API_TOKEN}, trimmed length ${#TOKEN}, lines $(printf %s "$CLOUDFLARE_API_TOKEN" | grep -c '')"
           echo "Account ID: raw length ${#CLOUDFLARE_ACCOUNT_ID}, trimmed length ${#ACCT} (expected 32)"
           # Hints about common mistakes (lengths only, values are never printed)
-          if [ "${#TOKEN}" -ne 40 ]; then echo "HINT: a Cloudflare API token is normally 40 characters; this one has ${#TOKEN}."; fi
+          if [ "${#TOKEN}" -ne 40 ] && [ "${#TOKEN}" -ne 53 ]; then echo "HINT: Cloudflare API tokens are usually 40 characters (older format) or 53 (cfut_ or cfat_ prefix); this one has ${#TOKEN}."; fi
+          if printf %s "$TOKEN" | grep -qE '^cf(ut|at)_'; then echo "Token prefix: looks like a current-format Cloudflare token (cfut_ or cfat_)."; else echo "Token prefix: does not start with cfut_ or cfat_ (fine for older tokens)."; fi
+          BAD=$(printf %s "$TOKEN" | LC_ALL=C grep -o '[^A-Za-z0-9_-]' | wc -l)
+          echo "Characters outside A-Z a-z 0-9 _ - in the token: $BAD"
+          if [ "$BAD" -gt 0 ]; then echo "HINT: the token contains unexpected characters (hex bytes: $(printf %s "$TOKEN" | LC_ALL=C grep -o '[^A-Za-z0-9_-]' | od -An -tx1 | tr -d '\n'))."; fi
           if [ "${#ACCT}" -ne 32 ]; then echo "HINT: a Cloudflare account ID is 32 characters; this one has ${#ACCT}."; fi
           if printf %s "$TOKEN" | grep -qiE '^bearer'; then echo "HINT: the token secret starts with 'Bearer'. Store only the token."; fi
           if printf %s "$TOKEN" | grep -q '='; then echo "HINT: the token secret contains '='. Store only the token, not NAME=value."; fi
