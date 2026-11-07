@@ -1,0 +1,11 @@
+# Copy to .dev.vars for local development. These values are throwaway
+# examples for local use only. In production use `wrangler secret put`.
+ADMIN_TOKEN=dev-admin-token
+SOURCE_SHOP_SECRET=dev-shop-secret
+SOURCE_PAYMENTS_SECRET=dev-payments-secret
+DEST_CRM_SECRET=dev-crm-secret
+DEST_CRM_URL=http://127.0.0.1:9100/hook
+# Local-only tuning so the demo does not take minutes:
+RETRY_BASE_SECONDS=1
+RETRY_MAX_SECONDS=4
+MAX_ATTEMPTS=6

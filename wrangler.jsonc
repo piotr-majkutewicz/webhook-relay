@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "webhook-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-07",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "webhook-relay",
+      // Replace with the id printed by: npx wrangler d1 create webhook-relay
+      // (local development works with any value).
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": {
+    "MAX_BODY_BYTES": "262144",
+    "MAX_ATTEMPTS": "6",
+    "RETRY_BASE_SECONDS": "30",
+    "RETRY_MAX_SECONDS": "3600",
+    "DELIVERY_TIMEOUT_MS": "10000",
+    "BATCH_SIZE": "10"
+  }
+}
