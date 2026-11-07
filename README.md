@@ -190,6 +190,10 @@ curl -s -X POST https://relay.piotrmajkutewicz.pl/demo/sample -d '{"scenario":"f
 
 Locally: create `.dev.vars.demo` (git-ignored) containing `DEMO_SOURCE_SECRET=<any random string>`, run `npm run db:migrate:demo:local`, then `npm run dev:demo` and open http://127.0.0.1:8787/.
 
+### Deploying the demo from GitHub Actions
+
+The repository includes a manual workflow (`.github/workflows/deploy.yml`). Add two repository secrets (Settings, Secrets and variables, Actions): `CLOUDFLARE_API_TOKEN` (a token that can edit Workers, D1 and the DNS zone of the domain) and `CLOUDFLARE_ACCOUNT_ID`. Then run Actions, Deploy demo, Run workflow on `main`. The workflow runs the type check and tests, creates the D1 database on the first run, applies migrations, deploys the `demo` environment and generates the `DEMO_SOURCE_SECRET` once (it stays in the Worker and is never printed).
+
 ## Deploy
 
 ```bash
