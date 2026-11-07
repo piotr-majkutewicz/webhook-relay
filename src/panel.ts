@@ -278,10 +278,15 @@ footer { padding:16px 20px 28px; border-top:1px solid var(--line); margin-top:16
   function setAmsg(key, vars) { amsgState = key ? { key: key, vars: vars } : null; if ($("amsg")) $("amsg").textContent = key ? t(key, vars) : ""; }
 
   // ---- do not touch the page while the user is touching or scrolling it ----
-  var lastTouch = 0;
-  function touchedRecently() { return Date.now() - lastTouch < IDLE_MS; }
+  var lastTouch = 0, fingers = 0;
+  function touchedRecently() { return fingers > 0 || Date.now() - lastTouch < IDLE_MS; }
   ["touchstart", "touchmove", "scroll", "wheel", "pointerdown", "keydown"].forEach(function (ev) {
     window.addEventListener(ev, function () { lastTouch = Date.now(); }, { passive: true, capture: true });
+  });
+  // A finger resting on the screen counts as touching, even without movement.
+  window.addEventListener("touchstart", function (ev) { fingers = ev.touches.length; }, { passive: true, capture: true });
+  ["touchend", "touchcancel"].forEach(function (ev) {
+    window.addEventListener(ev, function (e) { fingers = e.touches.length; lastTouch = Date.now(); }, { passive: true, capture: true });
   });
   var pending = {}, flushTimer = null;
   function schedule() {
@@ -380,7 +385,7 @@ footer { padding:16px 20px 28px; border-top:1px solid var(--line); margin-top:16
     if (!DEMO) token = $("token").value;
     var f = $("filter").value;
     loading = true;
-    var reqs = [api("/admin/events?limit=100" + (f ? "&status=" + encodeURIComponent(f) : ""))];
+    var reqs = [api("/admin/events?limit=" + (DEMO ? 20 : 100) + (f ? "&status=" + encodeURIComponent(f) : ""))];
     if (DEMO) reqs.push(api("/admin/intake"));
     Promise.all(reqs).then(function (rs) {
       var r = rs[0];
