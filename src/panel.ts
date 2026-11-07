@@ -1,4 +1,5 @@
 import { DEFAULT_LANG, dictionaries, type Dict, type Key, type Lang } from "./i18n";
+import { DEBUG_SCROLL_JS } from "./debug-scroll.js";
 
 /**
  * Admin panel: one HTML page, rendered in Polish by default with an EN switch.
@@ -349,6 +350,7 @@ details.dev .about, details.dev .note, details.dev .try, details.dev .intake { m
 </details>`
       : ""
   }
+<script nonce="${nonce}">${DEBUG_SCROLL_JS}</script>
 <script nonce="${nonce}" type="application/json" id="i18n">${i18nJson}</script>
 <script nonce="${nonce}">
 (function () {
