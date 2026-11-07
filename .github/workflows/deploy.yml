@@ -35,6 +35,13 @@ jobs:
           ACCT=$(printf %s "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')
           echo "API token: raw length ${#CLOUDFLARE_API_TOKEN}, trimmed length ${#TOKEN}, lines $(printf %s "$CLOUDFLARE_API_TOKEN" | grep -c '')"
           echo "Account ID: raw length ${#CLOUDFLARE_ACCOUNT_ID}, trimmed length ${#ACCT} (expected 32)"
+          # Hints about common mistakes (lengths only, values are never printed)
+          if [ "${#TOKEN}" -ne 40 ]; then echo "HINT: a Cloudflare API token is normally 40 characters; this one has ${#TOKEN}."; fi
+          if [ "${#ACCT}" -ne 32 ]; then echo "HINT: a Cloudflare account ID is 32 characters; this one has ${#ACCT}."; fi
+          if printf %s "$TOKEN" | grep -qiE '^bearer'; then echo "HINT: the token secret starts with 'Bearer'. Store only the token."; fi
+          if printf %s "$TOKEN" | grep -q '='; then echo "HINT: the token secret contains '='. Store only the token, not NAME=value."; fi
+          if printf %s "$TOKEN" | grep -qE '^[0-9a-f]{32}$'; then echo "HINT: the token secret looks like an account ID (32 hex characters). The two secrets may be swapped."; fi
+          if printf %s "$ACCT" | grep -qE '^[A-Za-z0-9_-]{40}$'; then echo "HINT: the account ID secret looks like an API token. The two secrets may be swapped."; fi
           echo "::add-mask::$TOKEN"
           echo "::add-mask::$ACCT"
           echo "CLOUDFLARE_API_TOKEN=$TOKEN" >> "$GITHUB_ENV"
