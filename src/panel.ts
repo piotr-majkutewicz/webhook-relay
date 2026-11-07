@@ -385,7 +385,7 @@ footer { padding:16px 20px 28px; border-top:1px solid var(--line); margin-top:16
     if (!DEMO) token = $("token").value;
     var f = $("filter").value;
     loading = true;
-    var reqs = [api("/admin/events?limit=" + (DEMO ? 20 : 100) + (f ? "&status=" + encodeURIComponent(f) : ""))];
+    var reqs = [api("/admin/events?limit=" + (DEMO ? 10 : 100) + (f ? "&status=" + encodeURIComponent(f) : ""))];
     if (DEMO) reqs.push(api("/admin/intake"));
     Promise.all(reqs).then(function (rs) {
       var r = rs[0];

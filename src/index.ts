@@ -123,7 +123,7 @@ async function handleAdmin(
 
   // Demo only: duplicates ignored and requests rejected, so the panel can show them.
   if (isDemo(env) && parts[1] === "intake" && parts.length === 2) {
-    return json(200, { entries: await repo.listIntake(30) });
+    return json(200, { entries: await repo.listIntake(10) });
   }
 
   if (parts[1] !== "events") return json(404, { error: "not found" });
