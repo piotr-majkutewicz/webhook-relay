@@ -78,7 +78,7 @@ describe("panel language", () => {
       const html = await (await harness(vars).call("/")).text();
       const m = /<script nonce="[^"]+" type="application\/json" id="i18n">(.*?)<\/script>/s.exec(html);
       const data = JSON.parse(m![1]!) as Record<string, Record<string, string>>;
-      expect(data.pl!.sendButton ?? data.pl!.loadButton).toBeTruthy();
+      expect(data.pl!.loadButton).toBeTruthy();
       expect(data.en!.loadButton).toBe(dictionaries.en.loadButton);
       expect(html).not.toMatch(/innerHTML|<script[^>]+src=/);
     });
@@ -86,8 +86,9 @@ describe("panel language", () => {
 
   it("demo: Polish texts and CTA, and no replay or token texts in either language", async () => {
     const html = await (await harness({ DEMO_MODE: "true" }).call("/")).text();
-    expect(html).toContain("Wyślij przykładowe zdarzenie");
-    expect(html).toContain("nie działa dwa razy, potem działa");
+    expect(html).toContain("Co to jest?");
+    expect(html).toContain("System odbiorcy chwilowo nie działa");
+    expect(html).toContain("To samo powiadomienie przychodzi dwa razy");
     expect(html).toContain("Potrzebujesz niezawodnych integracji między swoimi systemami? Napisz do Piotra Majkutewicza.");
     expect(html).toContain('href="https://piotrmajkutewicz.pl" rel="noopener"');
     expect(html).toContain("24 h");

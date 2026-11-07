@@ -314,7 +314,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext, makeRepo: Re
   if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/admin")) {
     const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
     const limits = parseDemoLimits(env);
-    return new Response(panelHtml(nonce, demo ? { ttlHours: limits.ttlMs / 3_600_000, maxEvents: limits.maxEvents } : null, parseLang(url.searchParams.get("lang")) ?? undefined), {
+    return new Response(panelHtml(nonce, demo ? { ttlHours: limits.ttlMs / 3_600_000, maxEvents: limits.maxEvents, maxAttempts: num(env.MAX_ATTEMPTS, 6) } : null, parseLang(url.searchParams.get("lang")) ?? undefined), {
       headers: {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
