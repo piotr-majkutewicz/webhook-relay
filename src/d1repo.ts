@@ -225,13 +225,13 @@ export class D1Repository implements Repository, DemoStore {
 
   // ---- DEMO_MODE support: rate counters and retention ----
 
-  async hitCounter(key: string, windowStart: number): Promise<number> {
+  async hitCounter(key: string, windowStart: number, by = 1): Promise<number> {
     const row = await this.db
       .prepare(
-        `INSERT INTO demo_rate_counters (key, window_start, hits) VALUES (?1, ?2, 1)
-         ON CONFLICT (key) DO UPDATE SET hits = hits + 1 RETURNING hits`,
+        `INSERT INTO demo_rate_counters (key, window_start, hits) VALUES (?1, ?2, ?3)
+         ON CONFLICT (key) DO UPDATE SET hits = hits + ?3 RETURNING hits`,
       )
-      .bind(key, windowStart)
+      .bind(key, windowStart, by)
       .first<{ hits: number }>();
     return row?.hits ?? Number.MAX_SAFE_INTEGER; // fail closed
   }

@@ -136,9 +136,9 @@ export class MemoryRepository implements Repository, DemoStore {
     return n;
   }
 
-  async hitCounter(key: string, windowStart: number) {
+  async hitCounter(key: string, windowStart: number, by = 1) {
     const c = this.counters.get(key) ?? { windowStart, hits: 0 };
-    c.hits += 1;
+    c.hits += by;
     this.counters.set(key, c);
     return c.hits;
   }

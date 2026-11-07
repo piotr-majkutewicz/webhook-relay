@@ -1,7 +1,14 @@
 import { destinations, isAllowedDestinationUrl, num, sources, str, type Env } from "./config";
 import {
-  DEMO_DESTINATION,
+  DEMO_DESTINATIONS,
+  DEMO_ORDER_SOURCE,
   DEMO_SOURCE,
+  ORDER_STEPS,
+  buildOrderBody,
+  demoOrderSource,
+  isOrderStep,
+  parseOrderRequest,
+  simulateOrderStep,
   MAX_SAMPLE_REQUEST_BYTES,
   buildSampleBody,
   checkRateLimit,
@@ -67,7 +74,7 @@ function deliverDeps(env: Env, repo: Repository): DeliverDeps {
     repo,
     getDestination(name) {
       // Demo: the only destination is the simulated one below. No URL from config or users is ever used.
-      if (demo) return name === DEMO_DESTINATION ? { url: "https://simulated.invalid/", secret: "simulated" } : null;
+      if (demo) return DEMO_DESTINATIONS.includes(name) ? { url: `https://simulated.invalid/${name}`, secret: "simulated" } : null;
       const d = destinations[name];
       if (!d) return null;
       const url = str(env, d.urlEnv);
@@ -76,7 +83,15 @@ function deliverDeps(env: Env, repo: Repository): DeliverDeps {
       return { url, secret };
     },
     fetch: demo
-      ? async (_url, init) => simulateDestination(Number(new Headers(init.headers).get("x-relay-attempt")), String(init.body ?? ""))
+      ? async (url, init) => {
+          // Only simulated receivers exist in demo mode; the URL is just a label for which one.
+          const attempt = Number(new Headers(init.headers).get("x-relay-attempt"));
+          const body = String(init.body ?? "");
+          const step = new URL(url).pathname.slice(1);
+          if (!isOrderStep(step)) return simulateDestination(attempt, body);
+          const scale = Number(env.DEMO_STEP_DELAY_SCALE ?? 1);
+          return simulateOrderStep(step, attempt, body, Number.isFinite(scale) && scale >= 0 ? scale : 1);
+        }
       : (url, init) => fetch(url, init),
     nowMs: () => Date.now(),
     random: Math.random,
@@ -166,7 +181,7 @@ async function clientKey(req: Request, pepper: string): Promise<string> {
   return (await hmacSha256Hex(pepper, ip)).slice(0, 24); // salted hash: raw IPs are never stored
 }
 
-type DemoAction = "sample" | "duplicate" | "bad-signature";
+type DemoAction = "sample" | "duplicate" | "bad-signature" | "order";
 
 /**
  * POST /demo/sample, /demo/duplicate, /demo/bad-signature. Demo mode only.
@@ -190,7 +205,12 @@ async function handleDemoAction(
   const raw = await readLimited(req, MAX_SAMPLE_REQUEST_BYTES);
   if (raw === null) return json(413, { error: "request too large" });
   let scenario: "flaky" | "ok" | "down" = "ok";
-  if (action === "sample") {
+  let hiccup = false;
+  if (action === "order") {
+    const parsed = parseOrderRequest(raw);
+    if (!parsed.ok) return json(400, { error: parsed.error });
+    hiccup = parsed.hiccup;
+  } else if (action === "sample") {
     const parsed = parseSampleRequest(raw);
     if (!parsed.ok) return json(400, { error: parsed.error });
     scenario = parsed.scenario;
@@ -200,7 +220,7 @@ async function handleDemoAction(
 
   const limits = parseDemoLimits(env);
   const now = Date.now();
-  const verdict = await checkRateLimit(repo, now, await clientKey(req, secret), limits);
+  const verdict = await checkRateLimit(repo, now, await clientKey(req, secret), limits, action === "order" ? ORDER_STEPS.length : 1);
   if (!verdict.ok) {
     return json(
       429,
@@ -212,8 +232,10 @@ async function handleDemoAction(
   // Hard cap: make room before inserting (oldest events go first).
   if ((await repo.countEvents()) >= limits.maxEvents) await repo.trimEventsTo(limits.maxEvents - 1);
 
-  const id = `evt_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
-  const body = buildSampleBody(id, scenario, Math.random(), now);
+  const id = `${action === "order" ? "ord" : "evt"}_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  const hiccupStep = hiccup ? ORDER_STEPS[Math.floor(Math.random() * ORDER_STEPS.length)]! : null;
+  const body =
+    action === "order" ? buildOrderBody(id, Math.floor(Math.random() * 10_000), hiccupStep, now) : buildSampleBody(id, scenario, Math.random(), now);
   const ts = String(Math.floor(now / 1000));
   // A bad signature is made by signing with a different key; the real secret is never involved.
   const signingKey = action === "bad-signature" ? `${secret}:not-the-key` : secret;
@@ -225,8 +247,8 @@ async function handleDemoAction(
   // The same ingest path as a real webhook: signature, idempotency, atomic insert.
   const ingest = () =>
     handleIngest(
-      { repo, getSource: () => ({ cfg: demoSource, secret }), nowMs: () => now, newId: () => crypto.randomUUID() },
-      DEMO_SOURCE,
+      { repo, getSource: () => ({ cfg: action === "order" ? demoOrderSource : demoSource, secret }), nowMs: () => now, newId: () => crypto.randomUUID() },
+      action === "order" ? DEMO_ORDER_SOURCE : DEMO_SOURCE,
       headers,
       body,
     );
@@ -243,6 +265,7 @@ async function handleDemoAction(
     await repo.logIntake({ receivedAt: now, kind: "duplicate", reason: "duplicate", eventId: result.body.id ?? null, eventKey: id });
     return json(202, { ...result.body, scenario, duplicateIgnored: again.status === 200 });
   }
+  if (action === "order") return json(result.status, { ...result.body, hiccup: hiccupStep });
   return json(result.status, { ...result.body, scenario });
 }
 
@@ -303,7 +326,7 @@ async function route(req: Request, env: Env, ctx: ExecutionContext, makeRepo: Re
     return json(result.status, result.body);
   }
 
-  const demoAction = demo ? /^\/demo\/(sample|duplicate|bad-signature)$/.exec(url.pathname) : null;
+  const demoAction = demo ? /^\/demo\/(sample|duplicate|bad-signature|order)$/.exec(url.pathname) : null;
   if (demoAction) return handleDemoAction(demoAction[1] as DemoAction, req, env, ctx, url, makeRepo(env));
 
   if (url.pathname.startsWith("/admin/")) {

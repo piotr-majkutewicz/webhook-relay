@@ -44,6 +44,8 @@ export interface Env {
   DEMO_RATE_WINDOW_SECONDS?: string;
   DEMO_RATE_PER_IP?: string;
   DEMO_RATE_GLOBAL?: string;
+  /** Multiplies the simulated step delays of the order story (default 1; tests use 0). */
+  DEMO_STEP_DELAY_SCALE?: string;
   [key: string]: unknown;
 }
 

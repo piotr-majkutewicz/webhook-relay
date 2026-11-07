@@ -391,3 +391,79 @@ describe("demo: fast retries on read", () => {
     expect(h.repo.deliveries[0]!.attempts).toBe(0);
   });
 });
+
+describe("demo order automation", () => {
+  const FAST = { ...DEMO, DEMO_STEP_DELAY_SCALE: "0", RETRY_BASE_SECONDS: "5", RETRY_MAX_SECONDS: "10", DEMO_RATE_PER_IP: "100", DEMO_RATE_GLOBAL: "100" };
+
+  it("one order is one event with four deliveries to four simulated receivers, with no network", async () => {
+    const netFetch = vi.fn(() => {
+      throw new Error("network must not be used in demo mode");
+    });
+    vi.stubGlobal("fetch", netFetch);
+    const h = harness(FAST);
+    const res = await h.call("/demo/order", post({ hiccup: false }));
+    expect(res.status).toBe(202);
+    expect(h.repo.events).toHaveLength(1);
+    expect(h.repo.events[0]!.source).toBe("demo-shop");
+    expect(h.repo.deliveries.map((d) => d.destination).sort()).toEqual(["email", "invoice", "sheet", "warehouse"]);
+    expect(h.repo.deliveries.every((d) => d.status === "delivered" && d.log.length === 1)).toBe(true);
+    expect(netFetch).not.toHaveBeenCalled();
+    const body = JSON.parse(h.repo.events[0]!.body);
+    expect(Object.keys(body)).toEqual(["id", "type", "number", "items", "total", "currency", "hiccup", "created"]);
+    expect(body.hiccup).toBeNull();
+    expect(h.repo.events[0]!.body.length).toBeLessThan(400);
+  });
+
+  it("with a hiccup exactly one step fails once and is retried, the others are unaffected", async () => {
+    const h = harness(FAST);
+    const base = Date.now();
+    const res = (await (await h.call("/demo/order", post({ hiccup: true }))).json()) as { hiccup: string };
+    expect(["invoice", "email", "warehouse", "sheet"]).toContain(res.hiccup);
+    const failing = h.repo.deliveries.filter((d) => d.status === "pending");
+    expect(failing.map((d) => d.destination)).toEqual([res.hiccup]);
+    expect(failing[0]!.log.map((a) => a.statusCode)).toEqual([503]);
+    vi.spyOn(Date, "now").mockReturnValue(base + 20_000);
+    await h.call("/admin/events");
+    expect(h.repo.deliveries.every((d) => d.status === "delivered")).toBe(true);
+    expect(h.repo.deliveries.find((d) => d.destination === res.hiccup)!.log.map((a) => a.statusCode)).toEqual([503, 200]);
+  });
+
+  it("defaults to a hiccup and accepts only the boolean field", async () => {
+    const h = harness(FAST);
+    expect((await h.call("/demo/order", post({ hiccup: "yes" }))).status).toBe(400);
+    expect((await h.call("/demo/order", post({ hiccup: true, url: "https://evil.test" }))).status).toBe(400);
+    expect((await h.call("/demo/order", post({}, { origin: "https://evil.test" }))).status).toBe(403);
+    expect((await h.call("/demo/order", { method: "GET" })).status).toBe(405);
+    expect(h.repo.events).toHaveLength(0);
+    const res = (await (await h.call("/demo/order", post())).json()) as { hiccup: string | null };
+    expect(res.hiccup).not.toBeNull();
+  });
+
+  it("an order uses four units of the rate limits", async () => {
+    const h = harness({ ...FAST, DEMO_RATE_PER_IP: "9", DEMO_RATE_GLOBAL: "100" });
+    expect((await h.call("/demo/order", post({ hiccup: false }))).status).toBe(202); // 4
+    expect((await h.call("/demo/order", post({ hiccup: false }))).status).toBe(202); // 8
+    expect((await h.call("/demo/order", post({ hiccup: false }))).status).toBe(429); // 12 > 9
+    const g = harness({ ...FAST, DEMO_RATE_PER_IP: "100", DEMO_RATE_GLOBAL: "5" });
+    expect((await g.call("/demo/order", post({ hiccup: false }))).status).toBe(202);
+    expect((await g.call("/demo/order", post({ hiccup: false }))).status).toBe(429);
+  });
+
+  it("does not exist in normal mode", async () => {
+    const h = harness();
+    expect((await h.call("/demo/order", post({}))).status).toBe(404);
+    expect(h.repo.events).toHaveLength(0);
+  });
+
+  it("keeps simulated delays within 0.5 to 2.5 seconds and can switch them off", async () => {
+    const { stepDelayMs, ORDER_STEPS } = await import("../src/core/demo");
+    for (const step of ORDER_STEPS) {
+      for (let i = 0; i < 50; i++) {
+        const ms = stepDelayMs(step, `ord_${i}`);
+        expect(ms).toBeGreaterThanOrEqual(500);
+        expect(ms).toBeLessThanOrEqual(2500);
+        expect(stepDelayMs(step, `ord_${i}`, 0)).toBe(0);
+      }
+    }
+  });
+});

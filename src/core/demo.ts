@@ -14,6 +14,16 @@ export const demoSource: SourceConfig = {
   destinations: [DEMO_DESTINATION],
 };
 
+/** The order automation story: one order event, one delivery per step, each to its own simulated receiver. */
+export const DEMO_ORDER_SOURCE = "demo-shop";
+export const ORDER_STEPS = ["invoice", "email", "warehouse", "sheet"] as const;
+export type OrderStep = (typeof ORDER_STEPS)[number];
+
+export const demoOrderSource: SourceConfig = { ...demoSource, destinations: [...ORDER_STEPS] };
+
+/** Every destination name that exists in demo mode. Nothing else can be delivered to. */
+export const DEMO_DESTINATIONS: readonly string[] = [DEMO_DESTINATION, ...ORDER_STEPS];
+
 export const SCENARIOS = ["flaky", "ok", "down"] as const;
 export type Scenario = (typeof SCENARIOS)[number];
 
@@ -34,10 +44,10 @@ export function parseDemoLimits(env: Record<string, unknown>): DemoLimits {
   const s = (k: string) => (typeof env[k] === "string" ? (env[k] as string) : undefined);
   return {
     ttlMs: num(s("DEMO_TTL_HOURS"), 24) * 3_600_000,
-    maxEvents: Math.floor(num(s("DEMO_MAX_EVENTS"), 500)),
+    maxEvents: Math.floor(num(s("DEMO_MAX_EVENTS"), 300)),
     windowMs: num(s("DEMO_RATE_WINDOW_SECONDS"), 3600) * 1000,
-    perIp: Math.floor(num(s("DEMO_RATE_PER_IP"), 10)),
-    global: Math.floor(num(s("DEMO_RATE_GLOBAL"), 100)),
+    perIp: Math.floor(num(s("DEMO_RATE_PER_IP"), 20)),
+    global: Math.floor(num(s("DEMO_RATE_GLOBAL"), 200)),
   };
 }
 
@@ -121,7 +131,7 @@ export function isEmptyRequest(raw: string): boolean {
 /** Counters and retention operations needed by DEMO_MODE (implemented by D1 and in memory). */
 export interface DemoStore {
   /** Adds one hit to the counter and returns the new value. */
-  hitCounter(key: string, windowStart: number): Promise<number>;
+  hitCounter(key: string, windowStart: number, by?: number): Promise<number>;
   purgeCounters(olderThanWindowStart: number): Promise<void>;
   countEvents(): Promise<number>;
   /** Deletes events (with deliveries and attempts) received before `cutoffMs`. Returns the number of events. */
@@ -145,13 +155,15 @@ export async function checkRateLimit(
   nowMs: number,
   clientKey: string,
   limits: Pick<DemoLimits, "windowMs" | "perIp" | "global">,
+  /** Budget units this action uses: the number of deliveries it creates (1 for a sample event, 4 for an order). */
+  cost = 1,
 ): Promise<RateVerdict> {
   const windowStart = Math.floor(nowMs / limits.windowMs) * limits.windowMs;
   const retryAfterSeconds = Math.max(1, Math.ceil((windowStart + limits.windowMs - nowMs) / 1000));
-  if ((await store.hitCounter(`ip:${clientKey}:${windowStart}`, windowStart)) > limits.perIp) {
+  if ((await store.hitCounter(`ip:${clientKey}:${windowStart}`, windowStart, cost)) > limits.perIp) {
     return { ok: false, scope: "ip", retryAfterSeconds };
   }
-  if ((await store.hitCounter(`global:${windowStart}`, windowStart)) > limits.global) {
+  if ((await store.hitCounter(`global:${windowStart}`, windowStart, cost)) > limits.global) {
     return { ok: false, scope: "global", retryAfterSeconds };
   }
   return { ok: true };
@@ -169,4 +181,83 @@ export async function runRetention(
   await store.trimIntakeTo(limits.maxEvents);
   await store.purgeCounters(nowMs - 2 * limits.windowMs);
   return { expired, evicted };
+}
+
+/** `{"hiccup": true|false}` or nothing. With hiccup (the default) one random step fails once. */
+export function parseOrderRequest(raw: string): { ok: true; hiccup: boolean } | { ok: false; error: string } {
+  if (isEmptyRequest(raw)) return { ok: true, hiccup: true };
+  let v: unknown;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    return { ok: false, error: "body must be JSON" };
+  }
+  const keys = typeof v === "object" && v !== null && !Array.isArray(v) ? Object.keys(v) : [];
+  if (keys.length !== 1 || keys[0] !== "hiccup" || typeof (v as { hiccup: unknown }).hiccup !== "boolean") {
+    return { ok: false, error: "only the boolean field 'hiccup' is accepted" };
+  }
+  return { ok: true, hiccup: (v as { hiccup: boolean }).hiccup };
+}
+
+/** Fixed shape and fixed vocabulary; the only variable parts are the order number and which step hiccups. */
+export function buildOrderBody(id: string, number: number, hiccup: OrderStep | null, nowMs: number): string {
+  return JSON.stringify({
+    id,
+    type: "order.created",
+    number: `ZAM-${String(number).padStart(4, "0")}`,
+    items: [
+      { name: "Kubek ceramiczny", qty: 2 },
+      { name: "Torba bawełniana", qty: 1 },
+    ],
+    total: 129,
+    currency: "PLN",
+    hiccup,
+    created: new Date(nowMs).toISOString(),
+  });
+}
+
+/** Simulated processing time per step: [minimum, spread] in milliseconds. */
+const STEP_DELAY: Record<OrderStep, [number, number]> = {
+  invoice: [500, 700],
+  email: [1200, 1200],
+  warehouse: [600, 900],
+  sheet: [1500, 900],
+};
+
+function hash(text: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+
+/** Deterministic per order and step, so a retry of the same step takes about as long. `scale` 0 turns the delay off (tests). */
+export function stepDelayMs(step: OrderStep, orderId: string, scale = 1): number {
+  const [min, spread] = STEP_DELAY[step];
+  return Math.round((min + (hash(`${step}:${orderId}`) % spread)) * scale);
+}
+
+/** Simulated receiver for one order step. Never touches the network. A hiccup is one 503 on the first attempt. */
+export async function simulateOrderStep(
+  step: OrderStep,
+  attempt: number,
+  body: string,
+  scale = 1,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<Response> {
+  let id = "";
+  let hiccup: unknown = null;
+  try {
+    const v = JSON.parse(body) as { id?: unknown; hiccup?: unknown };
+    id = typeof v.id === "string" ? v.id : "";
+    hiccup = v.hiccup;
+  } catch {
+    /* treated as a plain order */
+  }
+  const delay = stepDelayMs(step, id, scale);
+  if (delay > 0) await sleep(delay);
+  return new Response(null, { status: hiccup === step && attempt <= 1 ? 503 : 200 });
+}
+
+export function isOrderStep(name: string): name is OrderStep {
+  return (ORDER_STEPS as readonly string[]).includes(name);
 }
