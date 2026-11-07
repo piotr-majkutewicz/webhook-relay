@@ -175,10 +175,10 @@ button.big { width:100%; max-width:420px; font-size:16px; font-weight:600; min-h
 .step .ico { width:44px; height:44px; display:grid; place-items:center; color:var(--muted); }
 .step .ico svg { width:26px; height:26px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
 .step .body strong { display:block; }
-.step .hint { font-size:13px; display:block; }
-.step .note { display:grid; font-size:13px; color:var(--warn); }
-.step .note > span { grid-area:1/1; visibility:hidden; }
-.step.st-retry .note .n1, .step.retried .note .n2 { visibility:visible; }
+.step .hint { font-size:13px; display:block; color:var(--muted); }
+.step .snote { display:grid; font-size:13px; color:var(--warn); }
+.step .snote > span { grid-area:1/1; visibility:hidden; }
+.step.st-retry .snote .n1, .step.retried .snote .n2 { visibility:visible; }
 .step .state { display:flex; align-items:center; gap:8px; justify-content:flex-end; text-align:right; font-size:14px; }
 .ind { position:relative; width:28px; height:28px; flex:none; }
 .ind > * { position:absolute; inset:0; margin:auto; opacity:0; }
@@ -200,7 +200,7 @@ button.big { width:100%; max-width:420px; font-size:16px; font-weight:600; min-h
 .progress { height:10px; border-radius:99px; background:var(--line); margin:16px 0 4px; overflow:hidden; }
 .progress .bar { height:100%; width:0; background:var(--ok); transition:width .4s ease; }
 .compare { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
-.compare > div { border:1px solid var(--line2); border-radius:8px; padding:12px; min-height:64px; font-weight:600; }
+.compare > div { border:1px solid var(--line2); border-radius:8px; padding:12px; min-height:72px; font-weight:600; }
 .compare .auto { border-color:var(--ok); }
 .small { font-size:13px; }
 .calc h2 { margin-bottom:4px; }
@@ -224,6 +224,8 @@ details.dev .about, details.dev .note, details.dev .try, details.dev .intake { m
   .step { grid-template-columns:44px minmax(0,1fr); }
   .step .state { grid-column:2; justify-content:flex-start; text-align:left; }
   .compare { grid-template-columns:1fr; }
+  .compare > div { min-height:104px; }
+  button.big { min-height:68px; }
 }
 @media (prefers-reduced-motion:reduce) {
   *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
@@ -259,7 +261,7 @@ details.dev .about, details.dev .note, details.dev .try, details.dev .intake { m
       (st) => `
     <li class="step st-idle" data-step="${st}">
       <span class="ico" aria-hidden="true">${ICONS[st]}</span>
-      <span class="body"><strong data-i18n="step${cap(st)}">${t(("step" + cap(st)) as Key)}</strong><span class="hint" data-i18n="hint${cap(st)}">${t(("hint" + cap(st)) as Key)}</span><span class="note"><span class="n1" data-i18n="noteRetry">${t("noteRetry")}</span><span class="n2" data-i18n="noteRetried">${t("noteRetried")}</span></span></span>
+      <span class="body"><strong data-i18n="step${cap(st)}">${t(("step" + cap(st)) as Key)}</strong><span class="hint" data-i18n="hint${cap(st)}">${t(("hint" + cap(st)) as Key)}</span><span class="snote"><span class="n1" data-i18n="noteRetry">${t("noteRetry")}</span><span class="n2" data-i18n="noteRetried">${t("noteRetried")}</span></span></span>
       <span class="state"><span class="ind" aria-hidden="true"><span class="i-pulse"></span><span class="i-spin"></span><svg class="i-warn" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/></svg><svg class="i-check" viewBox="0 0 24 24"><path class="tick" d="M5 13l4 4 10-10"/></svg></span><span class="stxt">${t("stateIdle")}</span></span>
     </li>`,
     )
@@ -355,7 +357,7 @@ details.dev .about, details.dev .note, details.dev .try, details.dev .intake { m
   var token = ""; // memory only
   var selected = null, timer = null;
   var lastEvents = null, lastDetail = null, lastIntake = [], msgState = null, amsgState = null;
-  var rowMap = {}, detailSig = null, intakeSig = null, busy = false, busyBtn = null, loading = false;
+  var rowMap = {}, detailFor = null, detailSig = null, intakeSig = null, busy = false, busyBtn = null, loading = false;
   var order = null, orderBusy = false, calcOk = null, reduceMotion = false;
   try { reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (e) { /* ignore */ }
   var $ = function (id) { return document.getElementById(id); };
@@ -589,6 +591,9 @@ details.dev .about, details.dev .note, details.dev .try, details.dev .intake { m
     detailSig = sig;
     var y = window.scrollY;
     var hadFocus = box.contains(document.activeElement) && document.activeElement.id;
+    var evId = lastDetail && lastDetail.event ? lastDetail.event.id : null;
+    if (evId !== detailFor) { box.style.minHeight = ""; detailFor = evId; }
+    else box.style.minHeight = box.offsetHeight + "px"; // the view of one event does not shrink while it refreshes
     box.replaceChildren();
     if (!lastDetail) { box.appendChild(el("p", t("selectHint"), "muted")); return; }
     if (lastDetail.err) { box.appendChild(el("p", t(lastDetail.err, lastDetail.vars), "msg")); return; }
@@ -701,7 +706,7 @@ ${isDemo ? "" : `    var canReplay = e.deliveryList.some(function (d) { return d
     renderList();
     renderIntake();
     renderDetail();
-    if (DEMO) { renderOrder(); renderCalcText(); }
+    if (DEMO) { renderOrder(); renderCalcText(); announce(""); if (calcOk && calcOk.text) $("calcLive").textContent = calcOk.text(); }
   }
   Array.prototype.forEach.call(document.querySelectorAll("[data-lang]"), function (b) {
     b.addEventListener("click", function () { setLang(b.getAttribute("data-lang")); });
@@ -881,7 +886,7 @@ ${isDemo ? "" : `    var canReplay = e.deliveryList.some(function (d) { return d
     var hours = vals.orders * vals.minutes / 60;
     var target = { hours: hours, money: hours * vals.rate };
     var from = { hours: shown.hours === null ? 0 : shown.hours, money: shown.money === null ? 0 : shown.money };
-    calcOk = { minutes: vals.minutes };
+    calcOk = { minutes: vals.minutes, text: function () { return t("calcResult", { hours: fmtCalc("hours", target.hours), money: fmtCalc("money", target.money) }); } };
     if (shown.hours === null) { shown.hours = 0; shown.money = 0; }
     renderCalcText();
     ["hours", "money"].forEach(function (k) {
@@ -890,7 +895,7 @@ ${isDemo ? "" : `    var canReplay = e.deliveryList.some(function (d) { return d
         var n = document.querySelector('#calcResult [data-k="' + k + '"]');
         if (n) n.textContent = fmtCalc(k, v);
       }, function () {
-        if (k === "money") $("calcLive").textContent = t("calcResult", { hours: fmtCalc("hours", target.hours), money: fmtCalc("money", target.money) });
+        if (k === "money") $("calcLive").textContent = calcOk.text();
       });
     });
     renderOrder();
