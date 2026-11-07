@@ -73,9 +73,12 @@ export function panelHtml(nonce: string, demo: DemoPanelInfo | null = null, lang
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#14110f">
+<meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex, nofollow">
 <title>webhook-relay</title>
 <style nonce="${nonce}">
+html { background:#14110f; color-scheme:dark; }
 :root { --bg:#14110f; --fg:#f2ebdd; --muted:#a99f90; --line:#2f2823; --line2:#4a4038; --accent:#ef4444; --ok:#7fb069; --warn:#e0a458; --card:#1a1613; }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust:100%; }
